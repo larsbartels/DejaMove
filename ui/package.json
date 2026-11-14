@@ -11,7 +11,31 @@
     "dev": "concurrently --kill-others --success first \"npm run dev:vite\" \"wait-on http://localhost:5173 && npm run dev:electron\"",
     "prebuild": "npm run sync:stockfish",
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.node.json && vite build",
+    "package": "npm run build && electron-builder --win portable",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit"
+  },
+  "build": {
+    "appId": "com.dejamove.app",
+    "productName": "DejaMove",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../core/build/Release/dejamove-core.exe",
+        "to": "dejamove-core.exe"
+      }
+    ],
+    "win": {
+      "target": [
+        "portable"
+      ]
+    }
   },
   "dependencies": {
     "chessground": "^9.1.1",
@@ -26,6 +50,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.1.0",
     "electron": "^33.2.0",
+    "electron-builder": "^26.18.0",
     "typescript": "^5.7.2",
     "vite": "^6.0.1",
     "wait-on": "^8.0.1"

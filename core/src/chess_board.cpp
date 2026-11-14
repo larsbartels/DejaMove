@@ -147,7 +147,12 @@ std::optional<MoveResult> ChessBoard::make_uci_move(std::string_view uci) {
 }
 
 std::optional<MoveResult> ChessBoard::make_san_move(std::string_view san) {
-    const chess::Move move = chess::uci::parseSan(impl_->board, san);
+    chess::Move move = chess::Move::NO_MOVE;
+    try {
+        move = chess::uci::parseSan(impl_->board, san);
+    } catch (...) {
+        return std::nullopt;
+    }
     if (move == chess::Move::NO_MOVE) {
         return std::nullopt;
     }

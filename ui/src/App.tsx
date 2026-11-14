@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AnalysisView } from './components/AnalysisView';
+import { AnalysisView, type AnalysisHandoff } from './components/AnalysisView';
 import { EditorView } from './components/EditorView';
 import { TrainerView } from './components/TrainerView';
-import type { RepertoireListResponse, VariantSegment } from './types';
+import type { RepertoireListResponse, TrainingSessionState, VariantSegment } from './types';
 import './App.css';
 
 type AppMode = 'editor' | 'trainer' | 'analysis';
@@ -13,6 +13,8 @@ export function App() {
   const [coreStatus, setCoreStatus] = useState<'connecting' | 'ready' | 'error'>('connecting');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [selectedTrainId, setSelectedTrainId] = useState<string | null>(null);
+  const [pausedTraining, setPausedTraining] = useState<TrainingSessionState | null>(null);
+  const [analysisHandoff, setAnalysisHandoff] = useState<AnalysisHandoff | null>(null);
 
   const refreshRepertoire = useCallback(async () => {
     try {
@@ -39,7 +41,18 @@ export function App() {
   }, [refreshRepertoire]);
 
   const handleTrainVariant = (segmentId: string) => {
+    setPausedTraining(null);
     setSelectedTrainId(segmentId);
+    setMode('trainer');
+  };
+
+  const handleOpenInAnalysis = (session: TrainingSessionState, handoff: AnalysisHandoff) => {
+    setPausedTraining(session);
+    setAnalysisHandoff(handoff);
+    setMode('analysis');
+  };
+
+  const handleReturnToTrainer = () => {
     setMode('trainer');
   };
 
@@ -75,7 +88,10 @@ export function App() {
           <button
             type="button"
             className={mode === 'analysis' ? 'active' : ''}
-            onClick={() => setMode('analysis')}
+            onClick={() => {
+              setAnalysisHandoff(null);
+              setMode('analysis');
+            }}
           >
             Analysis Board
           </button>
@@ -95,10 +111,17 @@ export function App() {
         <TrainerView
           segments={segments}
           initialSegmentId={selectedTrainId}
+          resumedSession={pausedTraining}
           onRefresh={refreshRepertoire}
+          onOpenInAnalysis={handleOpenInAnalysis}
         />
       )}
-      {mode === 'analysis' && <AnalysisView />}
+      {mode === 'analysis' && (
+        <AnalysisView
+          handoff={analysisHandoff}
+          onReturnToTrainer={pausedTraining ? handleReturnToTrainer : undefined}
+        />
+      )}
     </div>
   );
 }

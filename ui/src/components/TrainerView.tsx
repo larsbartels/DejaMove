@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChessBoardView } from './ChessBoardView';
+import type { AnalysisHandoff } from './AnalysisView';
 import type {
+  AnalysisPly,
   BoardArrow,
+  BoardStateResponse,
   Side,
   TrainingSessionState,
   TrainingStartResponse,
@@ -12,11 +15,19 @@ import type {
 interface TrainerViewProps {
   segments: VariantSegment[];
   initialSegmentId: string | null;
+  resumedSession?: TrainingSessionState | null;
   onRefresh: () => Promise<void>;
+  onOpenInAnalysis: (session: TrainingSessionState, handoff: AnalysisHandoff) => void;
 }
 
-export function TrainerView({ segments, initialSegmentId, onRefresh }: TrainerViewProps) {
-  const [session, setSession] = useState<TrainingSessionState | null>(null);
+export function TrainerView({
+  segments,
+  initialSegmentId,
+  resumedSession,
+  onRefresh,
+  onOpenInAnalysis,
+}: TrainerViewProps) {
+  const [session, setSession] = useState<TrainingSessionState | null>(resumedSession ?? null);
   const [selectedId, setSelectedId] = useState<string>(initialSegmentId ?? '');
   const [sideFilter, setSideFilter] = useState<'all' | Side>('all');
   const [wrongArrow, setWrongArrow] = useState<BoardArrow | null>(null);
@@ -45,15 +56,49 @@ export function TrainerView({ segments, initialSegmentId, onRefresh }: TrainerVi
   );
 
   useEffect(() => {
+    if (resumedSession) {
+      setSession(resumedSession);
+      turnStartMsRef.current = performance.now();
+      return;
+    }
     if (initialSegmentId) {
       setSelectedId(initialSegmentId);
       void startSession('specific', initialSegmentId);
     } else if (!session && segments.length > 0) {
       void startSession('smartRandom');
     }
-    // Only auto-start when entering Trainer or when initialSegmentId changes.
+    // Only auto-start when entering Trainer or when initialSegmentId/resumedSession changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialSegmentId]);
+  }, [initialSegmentId, resumedSession]);
+
+  const handleOpenInAnalysis = async () => {
+    if (!session) return;
+    const startState = await window.dejamove.rpc<BoardStateResponse>('board.state', {
+      fen: session.startFen,
+    });
+    const history: AnalysisPly[] = [
+      {
+        fen: startState.fen,
+        sideToMove: startState.sideToMove,
+        legalMoves: startState.legalMoves,
+      },
+    ];
+    for (const h of session.history) {
+      const st = await window.dejamove.rpc<BoardStateResponse>('board.state', { fen: h.fen });
+      history.push({
+        fen: st.fen,
+        sideToMove: st.sideToMove,
+        legalMoves: st.legalMoves,
+        uci: h.uci,
+        san: h.san,
+      });
+    }
+    onOpenInAnalysis(session, {
+      history,
+      cursor: history.length - 1,
+      orientation: session.userSide,
+    });
+  };
 
   const handleUserMove = async (uci: string) => {
     if (!session || !session.active || session.completed || session.awaitingMistakeAdvance) {
@@ -204,6 +249,9 @@ export function TrainerView({ segments, initialSegmentId, onRefresh }: TrainerVi
                   {session.userSide === 'white' ? 'W' : 'B'}
                 </span>
               </div>
+              <button type="button" onClick={() => void handleOpenInAnalysis()}>
+                Open in Analysis
+              </button>
               {!session.completed && !session.awaitingMistakeAdvance && (
                 <p className="muted">Play {session.userSide}&apos;s next move on the board.</p>
               )}

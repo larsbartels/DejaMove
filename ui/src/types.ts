@@ -28,6 +28,106 @@ export interface BoardArrow {
   brush: 'red' | 'blue' | 'green' | 'yellow';
 }
 
+export interface MoveStep {
+  uci: string;
+  san: string;
+  fen: string;
+  normalizedFen: string;
+  description: string;
+}
+
+export interface VariantStats {
+  score: number;
+  attempts: number;
+  successes: number;
+  streak: number;
+  lastPracticedMs: number;
+}
+
+export interface VariantSegment {
+  id: string;
+  name: string;
+  side: Side;
+  startFen: string;
+  startNormalizedFen: string;
+  moves: MoveStep[];
+  parentIds: string[];
+  childIds: string[];
+  stats: VariantStats;
+  effectiveScore?: number;
+}
+
+export interface RepertoireListResponse {
+  schemaVersion: number;
+  nextId: number;
+  segments: VariantSegment[];
+}
+
+export interface AddVariantResponse {
+  ok: boolean;
+  error?: string;
+  segmentId: string;
+  splitOccurred: boolean;
+  splitParentId: string;
+}
+
+export interface PlayedMoveRecord {
+  uci: string;
+  san: string;
+  fen: string;
+  description: string;
+  bySide: Side;
+  isUserMove: boolean;
+  wasMistake: boolean;
+}
+
+export interface ExpectedMoveOption {
+  uci: string;
+  san: string;
+  description: string;
+  targetSegmentId: string;
+  targetPlyIndex: number;
+}
+
+export interface SegmentScoreDelta {
+  segmentId: string;
+  name: string;
+  passed: boolean;
+  previousScore: number;
+  newScore: number;
+}
+
+export interface TrainingSessionState {
+  active: boolean;
+  completed: boolean;
+  awaitingMistakeAdvance: boolean;
+  startSegmentId: string;
+  currentSegmentId: string;
+  currentSegmentName: string;
+  userSide: Side;
+  startFen: string;
+  currentFen: string;
+  sideToMove: Side;
+  legalMoves: LegalMove[];
+  history: PlayedMoveRecord[];
+  pendingExpectedMoves: ExpectedMoveOption[];
+  scoreDeltas: SegmentScoreDelta[];
+}
+
+export interface TrainingStartResponse {
+  ok: boolean;
+  error?: string;
+  session?: TrainingSessionState;
+}
+
+export interface TrainingSubmitResponse {
+  accepted: boolean;
+  correct: boolean;
+  error?: string;
+  expectedMoves: ExpectedMoveOption[];
+  session: TrainingSessionState;
+}
+
 declare global {
   interface Window {
     dejamove: {

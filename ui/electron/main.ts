@@ -135,6 +135,10 @@ app.whenReady().then(() => {
   });
 });
 
+app.on('will-quit', () => {
+  coreClient.stop();
+});
+
 app.on('window-all-closed', () => {
   coreClient.stop();
   if (process.platform !== 'darwin') {

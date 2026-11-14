@@ -3,6 +3,7 @@
 #include "dejamove/chess_board.hpp"
 #include "dejamove/persistence.hpp"
 
+#include <chrono>
 #include <stdexcept>
 
 namespace dejamove {
@@ -76,7 +77,81 @@ nlohmann::json make_error_response(const nlohmann::json& id, int code, const std
     };
 }
 
+std::int64_t current_epoch_ms() {
+    using namespace std::chrono;
+    return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+}
+
+nlohmann::json expected_moves_json(const std::vector<ExpectedMoveOption>& opts) {
+    nlohmann::json arr = nlohmann::json::array();
+    for (const auto& o : opts) {
+        arr.push_back(nlohmann::json{
+            {"uci", o.uci},
+            {"san", o.san},
+            {"description", o.description},
+            {"targetSegmentId", o.target_segment_id},
+            {"targetPlyIndex", o.target_ply_index},
+        });
+    }
+    return arr;
+}
+
+nlohmann::json session_state_json(const TrainingSessionState& s, const RepertoireGraph& graph) {
+    nlohmann::json history_arr = nlohmann::json::array();
+    for (const auto& h : s.history) {
+        history_arr.push_back(nlohmann::json{
+            {"uci", h.uci},
+            {"san", h.san},
+            {"fen", h.fen},
+            {"description", h.description},
+            {"bySide", h.by_side == Side::White ? "white" : "black"},
+            {"isUserMove", h.is_user_move},
+            {"wasMistake", h.was_mistake},
+        });
+    }
+
+    nlohmann::json deltas_arr = nlohmann::json::array();
+    for (const auto& d : s.score_deltas) {
+        deltas_arr.push_back(nlohmann::json{
+            {"segmentId", d.segment_id},
+            {"name", d.name},
+            {"passed", d.passed},
+            {"previousScore", d.previous_score},
+            {"newScore", d.new_score},
+        });
+    }
+
+    const auto* cur_seg = graph.find_segment(s.current_segment_id);
+    const auto board = ChessBoard::from_fen(s.current_fen);
+
+    return nlohmann::json{
+        {"active", s.active},
+        {"completed", s.completed},
+        {"awaitingMistakeAdvance", s.awaiting_mistake_advance},
+        {"startSegmentId", s.start_segment_id},
+        {"currentSegmentId", s.current_segment_id},
+        {"currentSegmentName", cur_seg ? cur_seg->name : ""},
+        {"userSide", s.user_side == Side::White ? "white" : "black"},
+        {"startFen", s.start_fen},
+        {"currentFen", s.current_fen},
+        {"sideToMove",
+         board.has_value() ? (board->side_to_move() == Side::White ? "white" : "black") : "white"},
+        {"legalMoves", board.has_value() ? legal_moves_json(*board) : nlohmann::json::array()},
+        {"history", std::move(history_arr)},
+        {"pendingExpectedMoves", expected_moves_json(s.pending_expected_moves)},
+        {"scoreDeltas", std::move(deltas_arr)},
+    };
+}
+
 } // namespace
+
+void RpcServer::auto_save_if_configured() const {
+    if (storage_path_.empty()) {
+        return;
+    }
+    std::string err;
+    save_repertoire_to_file(repertoire_, storage_path_, err);
+}
 
 RpcServer::RpcServer(std::filesystem::path default_storage_path)
     : storage_path_(std::move(default_storage_path)) {
@@ -171,6 +246,9 @@ nlohmann::json RpcServer::dispatch_method(std::string_view method, const nlohman
         const auto inputs = parse_move_inputs(params.value("moves", nlohmann::json::array()));
 
         const auto res = repertoire_.add_variant(name, side, start_fen, inputs);
+        if (res.ok) {
+            auto_save_if_configured();
+        }
         return nlohmann::json{
             {"ok", res.ok},
             {"error", res.error},
@@ -187,6 +265,9 @@ nlohmann::json RpcServer::dispatch_method(std::string_view method, const nlohman
         const auto inputs = parse_move_inputs(params.value("moves", nlohmann::json::array()));
 
         const auto res = repertoire_.branch_from(parent_id, after_ply, name, inputs);
+        if (res.ok) {
+            auto_save_if_configured();
+        }
         return nlohmann::json{
             {"ok", res.ok},
             {"error", res.error},
@@ -200,12 +281,18 @@ nlohmann::json RpcServer::dispatch_method(std::string_view method, const nlohman
         const std::string parent_id = params.value("parentId", "");
         const std::string child_id = params.value("childId", "");
         const auto res = repertoire_.link_parent_child(parent_id, child_id);
+        if (res.ok) {
+            auto_save_if_configured();
+        }
         return nlohmann::json{{"ok", res.ok}, {"error", res.error}};
     }
 
     if (method == "repertoire.renameVariant") {
         const bool ok =
             repertoire_.rename_variant(params.value("id", ""), params.value("name", ""));
+        if (ok) {
+            auto_save_if_configured();
+        }
         return nlohmann::json{{"ok", ok}};
     }
 
@@ -213,11 +300,17 @@ nlohmann::json RpcServer::dispatch_method(std::string_view method, const nlohman
         const bool ok = repertoire_.set_move_description(params.value("id", ""),
                                                          params.value("plyIndex", std::size_t{0}),
                                                          params.value("description", ""));
+        if (ok) {
+            auto_save_if_configured();
+        }
         return nlohmann::json{{"ok", ok}};
     }
 
     if (method == "repertoire.removeVariant") {
         const bool ok = repertoire_.remove_variant(params.value("id", ""));
+        if (ok) {
+            auto_save_if_configured();
+        }
         return nlohmann::json{{"ok", ok}};
     }
 
@@ -258,6 +351,90 @@ nlohmann::json RpcServer::dispatch_method(std::string_view method, const nlohman
         std::string err;
         const bool ok = load_repertoire_from_file(path_str, repertoire_, err);
         return nlohmann::json{{"ok", ok}, {"error", err}};
+    }
+
+    if (method == "training.listWithScores") {
+        const std::int64_t now_ms = params.value("nowMs", current_epoch_ms());
+        nlohmann::json out = serialize_repertoire(repertoire_);
+        for (auto& seg_json : out["segments"]) {
+            const std::string id = seg_json.value("id", "");
+            if (const auto* seg = repertoire_.find_segment(id)) {
+                seg_json["effectiveScore"] = training_engine_.effective_score(seg->stats, now_ms);
+            }
+        }
+        return out;
+    }
+
+    if (method == "training.start") {
+        const std::int64_t now_ms = params.value("nowMs", current_epoch_ms());
+        const std::string mode = params.value("mode", "specific");
+        std::string segment_id = params.value("segmentId", "");
+
+        if (mode == "smartRandom" || segment_id.empty()) {
+            std::optional<Side> side_filter;
+            if (params.contains("side") && params["side"].is_string()) {
+                const std::string s = params["side"].get<std::string>();
+                if (s == "white") {
+                    side_filter = Side::White;
+                } else if (s == "black") {
+                    side_filter = Side::Black;
+                }
+            }
+            const auto* picked =
+                training_engine_.pick_smart_random_segment(repertoire_, now_ms, side_filter, rng_);
+            if (!picked) {
+                return nlohmann::json{{"ok", false}, {"error", "No trainable variants found."}};
+            }
+            segment_id = picked->id;
+        }
+
+        auto session_opt = training_engine_.start_session(repertoire_, segment_id, rng_);
+        if (!session_opt.has_value()) {
+            return nlohmann::json{{"ok", false}, {"error", "Failed to start training session."}};
+        }
+        active_training_ = std::move(*session_opt);
+        return nlohmann::json{
+            {"ok", true},
+            {"session", session_state_json(active_training_, repertoire_)},
+        };
+    }
+
+    if (method == "training.submitMove") {
+        const std::string move = params.value("move", "");
+        const std::int64_t elapsed_ms = params.value("elapsedMs", std::int64_t{2000});
+        const std::int64_t now_ms = params.value("nowMs", current_epoch_ms());
+
+        const auto res = training_engine_.submit_move(repertoire_, active_training_, move,
+                                                      elapsed_ms, now_ms, rng_);
+        active_training_ = res.state;
+        if (active_training_.completed) {
+            auto_save_if_configured();
+        }
+        return nlohmann::json{
+            {"accepted", res.accepted},
+            {"correct", res.correct},
+            {"error", res.error},
+            {"expectedMoves", expected_moves_json(res.expected_moves)},
+            {"session", session_state_json(active_training_, repertoire_)},
+        };
+    }
+
+    if (method == "training.advanceAfterMistake") {
+        const std::int64_t now_ms = params.value("nowMs", current_epoch_ms());
+        active_training_ =
+            training_engine_.advance_after_mistake(repertoire_, active_training_, now_ms, rng_);
+        if (active_training_.completed) {
+            auto_save_if_configured();
+        }
+        return nlohmann::json{
+            {"session", session_state_json(active_training_, repertoire_)},
+        };
+    }
+
+    if (method == "training.getState") {
+        return nlohmann::json{
+            {"session", session_state_json(active_training_, repertoire_)},
+        };
     }
 
     throw std::runtime_error("Method not found: " + std::string(method));

@@ -37,6 +37,7 @@ add_library(dejamove_lib STATIC
     src/repertoire_graph.cpp
     src/persistence.cpp
     src/training_engine.cpp
+    src/uci_engine.cpp
     src/rpc_server.cpp
 )
 
@@ -82,6 +83,7 @@ if(BUILD_TESTING)
         tests/repertoire_graph_test.cpp
         tests/rpc_and_persistence_test.cpp
         tests/training_engine_test.cpp
+        tests/uci_engine_test.cpp
     )
 
     target_link_libraries(dejamove_tests

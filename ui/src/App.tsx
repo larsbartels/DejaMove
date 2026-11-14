@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { EditorView } from './components/EditorView';
+import { TrainerView } from './components/TrainerView';
 import type { RepertoireListResponse, VariantSegment } from './types';
 import './App.css';
 
@@ -82,13 +83,11 @@ export function App() {
           onTrainVariant={handleTrainVariant}
         />
       ) : (
-        <div className="panel-card" style={{ margin: 'auto', maxWidth: 460 }}>
-          <h2>Trainer</h2>
-          <p className="muted">
-            Selected variant: {selectedTrainId ?? 'Smart Random'} (Trainer UI coming in next
-            commit).
-          </p>
-        </div>
+        <TrainerView
+          segments={segments}
+          initialSegmentId={selectedTrainId}
+          onRefresh={refreshRepertoire}
+        />
       )}
     </div>
   );

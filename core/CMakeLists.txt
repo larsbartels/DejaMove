@@ -34,6 +34,7 @@ FetchContent_MakeAvailable(nlohmann_json chess_library)
 
 add_library(dejamove_lib STATIC
     src/chess_board.cpp
+    src/repertoire_graph.cpp
 )
 
 target_include_directories(dejamove_lib
@@ -60,6 +61,7 @@ if(BUILD_TESTING)
 
     add_executable(dejamove_tests
         tests/chess_board_test.cpp
+        tests/repertoire_graph_test.cpp
     )
 
     target_link_libraries(dejamove_tests

@@ -1,0 +1,16 @@
+#!/usr/bin/env sh
+set -e
+
+# Run C++ unit tests if configured
+if [ -d "core/build" ]; then
+  echo "Running C++ tests..."
+  ctest --test-dir core/build --output-on-failure
+fi
+
+# Run UI lint & typecheck if present
+if [ -f "ui/package.json" ] && [ -d "node_modules" ]; then
+  echo "Running ESLint..."
+  npm run lint
+  echo "Running UI typecheck..."
+  npm --prefix ui run typecheck
+fi

@@ -1,0 +1,50 @@
+#!/usr/bin/env sh
+set -e
+
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM)
+if [ -z "$STAGED_FILES" ]; then
+  exit 0
+fi
+
+find_clang_format() {
+  if command -v clang-format >/dev/null 2>&1; then
+    command -v clang-format
+    return 0
+  fi
+  for candidate in \
+    "/c/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/Llvm/x64/bin/clang-format.exe" \
+    "/c/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/Llvm/x64/bin/clang-format.exe" \
+    "/c/Program Files/LLVM/bin/clang-format.exe"; do
+    if [ -x "$candidate" ]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# 1. C++ formatting check
+CPP_FILES=$(echo "$STAGED_FILES" | grep -E '\.(cpp|cc|cxx|h|hpp)$' || true)
+if [ -n "$CPP_FILES" ]; then
+  CLANG_FORMAT=$(find_clang_format || true)
+  if [ -n "$CLANG_FORMAT" ]; then
+    echo "Checking C++ formatting with $CLANG_FORMAT..."
+    echo "$CPP_FILES" | xargs "$CLANG_FORMAT" --dry-run --Werror
+  else
+    echo "Warning: clang-format not found; skipping C++ format check."
+  fi
+fi
+
+# 2. Prettier check (TS/JS/JSON/CSS/MD)
+FORMAT_FILES=$(echo "$STAGED_FILES" | grep -E '\.(ts|tsx|js|jsx|mjs|cjs|json|css|md)$' || true)
+if [ -n "$FORMAT_FILES" ] && [ -d "node_modules" ]; then
+  echo "Checking formatting with Prettier..."
+  echo "$FORMAT_FILES" | xargs npx prettier --check
+fi
+
+# 3. ESLint check (TS/TSX)
+LINT_FILES=$(echo "$STAGED_FILES" | grep -E '\.(ts|tsx)$' || true)
+if [ -n "$LINT_FILES" ] && [ -d "node_modules" ]; then
+  echo "Linting TypeScript files with ESLint..."
+  echo "$LINT_FILES" | xargs npx eslint --max-warnings=0
+fi

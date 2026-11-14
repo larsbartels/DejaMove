@@ -35,6 +35,8 @@ FetchContent_MakeAvailable(nlohmann_json chess_library)
 add_library(dejamove_lib STATIC
     src/chess_board.cpp
     src/repertoire_graph.cpp
+    src/persistence.cpp
+    src/rpc_server.cpp
 )
 
 target_include_directories(dejamove_lib
@@ -56,12 +58,28 @@ else()
     target_compile_options(dejamove_lib PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
+add_executable(dejamove-core
+    src/main.cpp
+)
+
+target_link_libraries(dejamove-core
+    PRIVATE
+        dejamove_lib
+)
+
+if(MSVC)
+    target_compile_options(dejamove-core PRIVATE /W4 /permissive- /utf-8)
+else()
+    target_compile_options(dejamove-core PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
 if(BUILD_TESTING)
     FetchContent_MakeAvailable(Catch2)
 
     add_executable(dejamove_tests
         tests/chess_board_test.cpp
         tests/repertoire_graph_test.cpp
+        tests/rpc_and_persistence_test.cpp
     )
 
     target_link_libraries(dejamove_tests

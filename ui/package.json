@@ -4,9 +4,12 @@
   "private": true,
   "main": "dist-electron/main.js",
   "scripts": {
+    "sync:stockfish": "node -e \"const fs=require('fs');fs.mkdirSync('public/stockfish',{recursive:true});for(const f of ['stockfish-19-lite-single.js','stockfish-19-lite-single.wasm'])fs.copyFileSync('node_modules/stockfish/bin/'+f,'public/stockfish/'+f);\"",
     "dev:vite": "vite",
     "dev:electron": "tsc -p tsconfig.node.json && electron .",
+    "predev": "npm run sync:stockfish",
     "dev": "concurrently --kill-others --success first \"npm run dev:vite\" \"wait-on http://localhost:5173 && npm run dev:electron\"",
+    "prebuild": "npm run sync:stockfish",
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.node.json && vite build",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit"
   },
@@ -14,7 +17,8 @@
     "chessground": "^9.1.1",
     "dejamove": "file:..",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "stockfish": "^19.0.1"
   },
   "devDependencies": {
     "@types/react": "^18.3.12",

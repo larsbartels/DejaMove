@@ -23,6 +23,7 @@ dist/
 dist-electron/
 release/
 *.tsbuildinfo
+ui/public/stockfish/
 
 # Logs & caches
 *.log

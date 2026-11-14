@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
+import { AnalysisView } from './components/AnalysisView';
 import { EditorView } from './components/EditorView';
 import { TrainerView } from './components/TrainerView';
 import type { RepertoireListResponse, VariantSegment } from './types';
 import './App.css';
 
-type AppMode = 'editor' | 'trainer';
+type AppMode = 'editor' | 'trainer' | 'analysis';
 
 export function App() {
   const [mode, setMode] = useState<AppMode>('editor');
@@ -71,24 +72,33 @@ export function App() {
           >
             Trainer
           </button>
+          <button
+            type="button"
+            className={mode === 'analysis' ? 'active' : ''}
+            onClick={() => setMode('analysis')}
+          >
+            Analysis Board
+          </button>
         </nav>
       </header>
 
       {errorMsg && <div className="error-banner">{errorMsg}</div>}
 
-      {mode === 'editor' ? (
+      {mode === 'editor' && (
         <EditorView
           segments={segments}
           onRefresh={refreshRepertoire}
           onTrainVariant={handleTrainVariant}
         />
-      ) : (
+      )}
+      {mode === 'trainer' && (
         <TrainerView
           segments={segments}
           initialSegmentId={selectedTrainId}
           onRefresh={refreshRepertoire}
         />
       )}
+      {mode === 'analysis' && <AnalysisView />}
     </div>
   );
 }

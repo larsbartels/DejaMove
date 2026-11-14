@@ -1,9 +1,11 @@
 #pragma once
 
 #include "dejamove/repertoire_graph.hpp"
+#include "dejamove/training_engine.hpp"
 
 #include <filesystem>
 #include <nlohmann/json.hpp>
+#include <random>
 #include <string>
 #include <string_view>
 
@@ -25,8 +27,12 @@ class RpcServer {
 
   private:
     nlohmann::json dispatch_method(std::string_view method, const nlohmann::json& params);
+    void auto_save_if_configured() const;
 
     RepertoireGraph repertoire_;
+    TrainingEngine training_engine_;
+    TrainingSessionState active_training_;
+    std::mt19937_64 rng_{std::random_device{}()};
     std::filesystem::path storage_path_;
 };
 

@@ -68,3 +68,40 @@ TEST_CASE("RpcServer handles board moves and repertoire splitting over JSON-RPC"
         server.handle_line(R"({"jsonrpc":"2.0","id":5,"method":"repertoire.list"})"));
     REQUIRE(list["result"]["segments"].size() == 3);
 }
+
+TEST_CASE("RpcServer drives training sessions including mistake recovery", "[rpc]") {
+    RpcServer server;
+
+    REQUIRE(
+        nlohmann::json::parse(server.handle_line(
+            R"({"jsonrpc":"2.0","id":1,"method":"repertoire.addVariant","params":{"name":"Italian","side":"white","moves":["e4","e5","Nf3","Nc6"]}})"))
+            ["result"]["ok"] == true);
+
+    const auto started = nlohmann::json::parse(server.handle_line(
+        R"({"jsonrpc":"2.0","id":2,"method":"training.start","params":{"mode":"smartRandom"}})"));
+    REQUIRE(started["result"]["ok"] == true);
+    REQUIRE(started["result"]["session"]["active"] == true);
+
+    // Wrong move -> returns expectedMoves, awaits advance
+    const auto wrong = nlohmann::json::parse(server.handle_line(
+        R"({"jsonrpc":"2.0","id":3,"method":"training.submitMove","params":{"move":"d2d4","elapsedMs":1000}})"));
+    REQUIRE(wrong["result"]["accepted"] == true);
+    REQUIRE(wrong["result"]["correct"] == false);
+    REQUIRE(wrong["result"]["expectedMoves"][0]["san"] == "e4");
+
+    const auto adv = nlohmann::json::parse(
+        server.handle_line(R"({"jsonrpc":"2.0","id":4,"method":"training.advanceAfterMistake"})"));
+    REQUIRE(adv["result"]["session"]["awaitingMistakeAdvance"] == false);
+
+    // Finish line with Nf3
+    const auto finish = nlohmann::json::parse(server.handle_line(
+        R"({"jsonrpc":"2.0","id":5,"method":"training.submitMove","params":{"move":"Nf3","elapsedMs":1000}})"));
+    REQUIRE(finish["result"]["accepted"] == true);
+    REQUIRE(finish["result"]["correct"] == true);
+    REQUIRE(finish["result"]["session"]["completed"] == true);
+
+    const auto scores = nlohmann::json::parse(
+        server.handle_line(R"({"jsonrpc":"2.0","id":6,"method":"training.listWithScores"})"));
+    REQUIRE(scores["result"]["segments"].size() == 1);
+    REQUIRE(scores["result"]["segments"][0]["stats"]["attempts"] == 1);
+}

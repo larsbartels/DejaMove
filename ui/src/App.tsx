@@ -187,21 +187,34 @@ export function App() {
             {history.length <= 1 ? (
               <p className="muted">Play moves on the board. Use Left/Right arrow keys to step.</p>
             ) : (
-              <div className="move-list">
-                {history.slice(1).map((entry, idx) => {
-                  const ply = idx + 1;
-                  const moveNum = Math.floor(idx / 2) + 1;
-                  const isWhite = idx % 2 === 0;
+              <div className="move-grid">
+                {Array.from({ length: Math.ceil((history.length - 1) / 2) }, (_, rowIdx) => {
+                  const whitePly = rowIdx * 2 + 1;
+                  const blackPly = rowIdx * 2 + 2;
+                  const whiteEntry = history[whitePly];
+                  const blackEntry = history[blackPly];
                   return (
-                    <button
-                      key={`${ply}-${entry.uci}`}
-                      type="button"
-                      className={`move-chip ${cursor === ply ? 'active' : ''}`}
-                      onClick={() => setCursor(ply)}
-                    >
-                      {isWhite ? `${moveNum}. ` : ''}
-                      {entry.san}
-                    </button>
+                    <div key={rowIdx} className="move-row">
+                      <span className="move-num">{rowIdx + 1}.</span>
+                      <button
+                        type="button"
+                        className={`move-cell ${cursor === whitePly ? 'active' : ''}`}
+                        onClick={() => setCursor(whitePly)}
+                      >
+                        {whiteEntry.san}
+                      </button>
+                      {blackEntry ? (
+                        <button
+                          type="button"
+                          className={`move-cell ${cursor === blackPly ? 'active' : ''}`}
+                          onClick={() => setCursor(blackPly)}
+                        >
+                          {blackEntry.san}
+                        </button>
+                      ) : (
+                        <span className="move-cell empty" />
+                      )}
+                    </div>
                   );
                 })}
               </div>

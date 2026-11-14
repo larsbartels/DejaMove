@@ -37,6 +37,7 @@ export function AnalysisView({ handoff, onReturnToTrainer }: AnalysisViewProps) 
   const [repertoireMoves, setRepertoireMoves] = useState<ContinuationOption[]>([]);
   const [engineEnabled, setEngineEnabled] = useState(false);
   const [multiPv, setMultiPv] = useState(3);
+  const [targetDepth, setTargetDepth] = useState<number | 'infinite'>(20);
   const [engineLines, setEngineLines] = useState<EngineLine[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -101,7 +102,7 @@ export function AnalysisView({ handoff, onReturnToTrainer }: AnalysisViewProps) 
     };
   }, [current]);
 
-  // Trigger Stockfish analysis whenever enabled, position changes, or MultiPV changes.
+  // Trigger Stockfish analysis whenever enabled, position, MultiPV, or target depth changes.
   useEffect(() => {
     const svc = engineRef.current;
     if (!svc) return;
@@ -110,8 +111,8 @@ export function AnalysisView({ handoff, onReturnToTrainer }: AnalysisViewProps) 
       setEngineLines([]);
       return;
     }
-    svc.analyze(current.fen, multiPv, 16, current.sideToMove);
-  }, [engineEnabled, current, multiPv]);
+    svc.analyze(current.fen, multiPv, targetDepth, current.sideToMove);
+  }, [engineEnabled, current, multiPv, targetDepth]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -216,7 +217,10 @@ export function AnalysisView({ handoff, onReturnToTrainer }: AnalysisViewProps) 
 
           <div className="engine-controls">
             <div className="panel-header-row">
-              <strong>Stockfish</strong>
+              <strong>
+                Stockfish
+                {engineEnabled && engineLines[0] ? ` (d${engineLines[0].depth})` : ''}
+              </strong>
               <button
                 type="button"
                 className={engineEnabled ? 'primary' : ''}
@@ -233,6 +237,23 @@ export function AnalysisView({ handoff, onReturnToTrainer }: AnalysisViewProps) 
                     {n}
                   </option>
                 ))}
+              </select>
+            </label>
+            <label className="inline-label">
+              Depth
+              <select
+                value={String(targetDepth)}
+                onChange={(e) =>
+                  setTargetDepth(
+                    e.target.value === 'infinite' ? 'infinite' : Number(e.target.value),
+                  )
+                }
+              >
+                <option value="14">14</option>
+                <option value="16">16</option>
+                <option value="20">20</option>
+                <option value="24">24</option>
+                <option value="infinite">Infinite</option>
               </select>
             </label>
 

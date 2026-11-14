@@ -48,7 +48,7 @@ export class StockfishWasmService {
   private pendingAnalyze: {
     fen: string;
     multiPv: number;
-    depth: number;
+    depth: number | 'infinite';
     sideToMove: Side;
   } | null = null;
   private linesByPv = new Map<number, EngineLine>();
@@ -99,7 +99,7 @@ export class StockfishWasmService {
     worker.postMessage('uci');
   }
 
-  analyze(fen: string, multiPv: number, depth: number, sideToMove: Side): void {
+  analyze(fen: string, multiPv: number, depth: number | 'infinite', sideToMove: Side): void {
     this.start();
     if (!this.worker) return;
     if (!this.ready) {
@@ -111,7 +111,7 @@ export class StockfishWasmService {
     this.worker.postMessage('stop');
     this.worker.postMessage(`setoption name MultiPV value ${Math.max(1, Math.min(5, multiPv))}`);
     this.worker.postMessage(`position fen ${fen}`);
-    this.worker.postMessage(`go depth ${depth}`);
+    this.worker.postMessage(depth === 'infinite' ? 'go infinite' : `go depth ${depth}`);
   }
 
   stop(): void {

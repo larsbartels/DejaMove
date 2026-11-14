@@ -86,7 +86,13 @@ export function ChessBoardView({
       },
     });
     apiRef.current = api;
+    const observer = new ResizeObserver(() => {
+      api.redrawAll();
+    });
+    observer.observe(boardRef.current);
+
     return () => {
+      observer.disconnect();
       api.destroy();
       apiRef.current = null;
     };

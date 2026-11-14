@@ -100,11 +100,14 @@ button:disabled {
   flex: 1;
   gap: 24px;
   min-height: 0;
-  align-items: flex-start;
+  align-items: stretch;
   justify-content: center;
 }
 
 .board-pane {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -112,8 +115,8 @@ button:disabled {
 
 .board-wrapper {
   position: relative;
-  width: min(72vh, 620px);
-  height: min(72vh, 620px);
+  width: min(100%, calc(100vh - 110px));
+  aspect-ratio: 1 / 1;
 }
 
 .chessground-board {
@@ -125,8 +128,8 @@ button:disabled {
 }
 
 .board-placeholder {
-  width: min(72vh, 620px);
-  height: min(72vh, 620px);
+  width: min(100%, calc(100vh - 110px));
+  aspect-ratio: 1 / 1;
   display: grid;
   place-items: center;
   background: #22201c;
@@ -160,9 +163,11 @@ button:disabled {
 
 .side-pane {
   width: 320px;
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
   gap: 14px;
+  min-height: 0;
 }
 
 .panel-card {
@@ -170,6 +175,13 @@ button:disabled {
   border: 1px solid #2e2b25;
   border-radius: 8px;
   padding: 14px;
+}
+
+.moves-card {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .panel-card h2 {
@@ -192,18 +204,43 @@ button:disabled {
   gap: 6px;
 }
 
-.move-list {
+.move-grid {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
-.move-chip {
-  padding: 4px 8px;
+.move-row {
+  display: grid;
+  grid-template-columns: 36px 1fr 1fr;
+  gap: 4px;
+  align-items: center;
+}
+
+.move-num {
+  color: #8f8a80;
   font-size: 0.825rem;
+  text-align: right;
+  padding-right: 6px;
+  user-select: none;
 }
 
-.move-chip.active {
+.move-cell {
+  text-align: left;
+  padding: 4px 8px;
+  font-size: 0.85rem;
+  background: transparent;
+  border-color: transparent;
+}
+
+.move-cell:hover:not(.empty) {
+  background: #2b2924;
+  border-color: #3f3c35;
+}
+
+.move-cell.active {
   background: #3a5a40;
   border-color: #6b9e78;
 }

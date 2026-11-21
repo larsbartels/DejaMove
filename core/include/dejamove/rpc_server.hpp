@@ -2,6 +2,7 @@
 
 #include "dejamove/repertoire_graph.hpp"
 #include "dejamove/training_engine.hpp"
+#include "dejamove/uci_engine.hpp"
 
 #include <filesystem>
 #include <nlohmann/json.hpp>
@@ -32,6 +33,7 @@ class RpcServer {
     RepertoireGraph repertoire_;
     TrainingEngine training_engine_;
     TrainingSessionState active_training_;
+    UciEngine uci_engine_;
     std::mt19937_64 rng_{std::random_device{}()};
     std::filesystem::path storage_path_;
 };

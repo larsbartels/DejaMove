@@ -5,6 +5,8 @@
   "description": "DejaMove - Chess opening move repetition trainer",
   "scripts": {
     "setup:hooks": "git config core.hooksPath .githooks",
+    "build:core": "cmake --build core/build --config Release --target dejamove-core",
+    "package": "npm run build:core && npm --prefix ui run package",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check ."

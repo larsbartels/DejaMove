@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
+import { AnalysisView, type AnalysisHandoff } from './components/AnalysisView';
 import { EditorView } from './components/EditorView';
 import { TrainerView } from './components/TrainerView';
-import type { RepertoireListResponse, VariantSegment } from './types';
+import type { RepertoireListResponse, TrainingSessionState, VariantSegment } from './types';
 import './App.css';
 
-type AppMode = 'editor' | 'trainer';
+type AppMode = 'editor' | 'trainer' | 'analysis';
 
 export function App() {
   const [mode, setMode] = useState<AppMode>('editor');
@@ -12,6 +13,8 @@ export function App() {
   const [coreStatus, setCoreStatus] = useState<'connecting' | 'ready' | 'error'>('connecting');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [selectedTrainId, setSelectedTrainId] = useState<string | null>(null);
+  const [pausedTraining, setPausedTraining] = useState<TrainingSessionState | null>(null);
+  const [analysisHandoff, setAnalysisHandoff] = useState<AnalysisHandoff | null>(null);
 
   const refreshRepertoire = useCallback(async () => {
     try {
@@ -38,7 +41,18 @@ export function App() {
   }, [refreshRepertoire]);
 
   const handleTrainVariant = (segmentId: string) => {
+    setPausedTraining(null);
     setSelectedTrainId(segmentId);
+    setMode('trainer');
+  };
+
+  const handleOpenInAnalysis = (session: TrainingSessionState, handoff: AnalysisHandoff) => {
+    setPausedTraining(session);
+    setAnalysisHandoff(handoff);
+    setMode('analysis');
+  };
+
+  const handleReturnToTrainer = () => {
     setMode('trainer');
   };
 
@@ -71,22 +85,41 @@ export function App() {
           >
             Trainer
           </button>
+          <button
+            type="button"
+            className={mode === 'analysis' ? 'active' : ''}
+            onClick={() => {
+              setAnalysisHandoff(null);
+              setMode('analysis');
+            }}
+          >
+            Analysis Board
+          </button>
         </nav>
       </header>
 
       {errorMsg && <div className="error-banner">{errorMsg}</div>}
 
-      {mode === 'editor' ? (
+      {mode === 'editor' && (
         <EditorView
           segments={segments}
           onRefresh={refreshRepertoire}
           onTrainVariant={handleTrainVariant}
         />
-      ) : (
+      )}
+      {mode === 'trainer' && (
         <TrainerView
           segments={segments}
           initialSegmentId={selectedTrainId}
+          resumedSession={pausedTraining}
           onRefresh={refreshRepertoire}
+          onOpenInAnalysis={handleOpenInAnalysis}
+        />
+      )}
+      {mode === 'analysis' && (
+        <AnalysisView
+          handoff={analysisHandoff}
+          onReturnToTrainer={pausedTraining ? handleReturnToTrainer : undefined}
         />
       )}
     </div>

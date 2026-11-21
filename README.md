@@ -45,10 +45,22 @@ ctest --test-dir core/build -C Debug --output-on-failure
 # 2. Run desktop app in development mode
 npm --prefix ui run dev
 
-# 3. Package standalone Windows portable executable (outputs to ui/release/)
-cmake --build core/build --config Release --target dejamove-core
-npm --prefix ui run package
+# 3. Package standalone Windows app (outputs to ui/release/)
+npm run package
+# Or step by step:
+# cmake --build core/build --config Release --target dejamove-core
+# npm --prefix ui run package
 ```
+
+Packaging outputs to `ui/release/`:
+
+- **Windows Installer:** `ui/release/DejaMove Setup 0.1.0.exe` (installs per-user with Start Menu & Desktop shortcuts so DejaMove launches like any native desktop app).
+- **Portable Executable:** `ui/release/DejaMove 0.1.0.exe` (runs directly without installation).
+
+Packaging outputs to `ui/release/`:
+
+- **Windows Installer:** `ui/release/DejaMove Setup 0.1.0.exe` (installs per-user with Start Menu & Desktop shortcuts so DejaMove launches like any native desktop app).
+- **Portable Executable:** `ui/release/DejaMove 0.1.0.exe` (runs directly without installation).
 
 ### Useful Commands
 

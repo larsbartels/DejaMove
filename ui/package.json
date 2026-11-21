@@ -2,6 +2,8 @@
   "name": "dejamove-ui",
   "version": "0.1.0",
   "private": true,
+  "description": "Chess opening move repetition trainer",
+  "author": "larsbartels",
   "main": "dist-electron/main.js",
   "scripts": {
     "sync:stockfish": "node -e \"const fs=require('fs');fs.mkdirSync('public/stockfish',{recursive:true});for(const f of ['stockfish-19-lite-single.js','stockfish-19-lite-single.wasm'])fs.copyFileSync('node_modules/stockfish/bin/'+f,'public/stockfish/'+f);\"",
@@ -11,18 +13,22 @@
     "dev": "concurrently --kill-others --success first \"npm run dev:vite\" \"wait-on http://localhost:5173 && npm run dev:electron\"",
     "prebuild": "npm run sync:stockfish",
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.node.json && vite build",
-    "package": "npm run build && electron-builder --win portable",
+    "package": "npm run build && electron-builder --win",
+    "package:installer": "npm run build && electron-builder --win nsis",
+    "package:portable": "npm run build && electron-builder --win portable",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit"
   },
   "build": {
     "appId": "com.dejamove.app",
     "productName": "DejaMove",
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "build"
     },
     "files": [
       "dist/**/*",
       "dist-electron/**/*",
+      "build/icon.png",
       "package.json"
     ],
     "extraResources": [
@@ -32,25 +38,42 @@
       }
     ],
     "win": {
+      "icon": "build/icon.ico",
       "target": [
-        "portable"
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
       ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "DejaMove"
     }
-  },
-  "dependencies": {
-    "chessground": "^9.1.1",
-    "dejamove": "file:..",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "stockfish": "^19.0.1"
   },
   "devDependencies": {
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "chessground": "^9.1.1",
     "concurrently": "^9.1.0",
     "electron": "^33.2.0",
     "electron-builder": "^26.18.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "stockfish": "^19.0.1",
     "typescript": "^5.7.2",
     "vite": "^6.0.1",
     "wait-on": "^8.0.1"

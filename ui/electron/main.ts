@@ -1,8 +1,33 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, protocol } from 'electron';
 import { ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
+
+const MIME_TYPES: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.mjs': 'application/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.wasm': 'application/wasm',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.ico': 'image/x-icon',
+  '.json': 'application/json; charset=utf-8',
+};
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'dejamove',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+      corsEnabled: true,
+    },
+  },
+]);
 
 interface PendingRequest {
   resolve: (value: unknown) => void;
@@ -15,7 +40,10 @@ class CoreRpcClient {
   private pending = new Map<number, PendingRequest>();
 
   start(binaryPath: string, storagePath: string): void {
-    this.proc = spawn(binaryPath, [storagePath], { stdio: ['pipe', 'pipe', 'pipe'] });
+    this.proc = spawn(binaryPath, [storagePath], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
 
     const rl = readline.createInterface({ input: this.proc.stdout });
     rl.on('line', (line) => {
@@ -94,14 +122,64 @@ function resolveCoreBinary(): string {
 }
 
 const coreClient = new CoreRpcClient();
+let mainWindow: BrowserWindow | null = null;
+
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+}
+
+app.on('second-instance', () => {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) {
+      mainWindow.restore();
+    }
+    mainWindow.focus();
+  }
+});
+
+function registerAppProtocol(): void {
+  const distDir = path.resolve(__dirname, '../dist');
+  protocol.handle('dejamove', async (request) => {
+    let relPath = 'index.html';
+    try {
+      const parsed = new URL(request.url);
+      const rawPath = decodeURIComponent(parsed.pathname).replace(/^\/+/, '');
+      if (rawPath) {
+        relPath = rawPath;
+      }
+    } catch {
+      return new Response('Bad Request', { status: 400 });
+    }
+
+    const filePath = path.resolve(distDir, relPath);
+    if (filePath !== distDir && !filePath.startsWith(distDir + path.sep)) {
+      return new Response('Forbidden', { status: 403 });
+    }
+
+    try {
+      const data = await fs.promises.readFile(filePath);
+      const ext = path.extname(filePath).toLowerCase();
+      const mimeType = MIME_TYPES[ext] ?? 'application/octet-stream';
+      return new Response(new Uint8Array(data), {
+        status: 200,
+        headers: { 'Content-Type': mimeType },
+      });
+    } catch {
+      return new Response('Not Found', { status: 404 });
+    }
+  });
+}
 
 function createWindow(): void {
+  const iconPath = path.resolve(__dirname, '../build/icon.png');
   const win = new BrowserWindow({
     width: 1200,
     height: 820,
     minWidth: 900,
     minHeight: 640,
     title: 'DejaMove',
+    icon: fs.existsSync(iconPath) ? iconPath : undefined,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -109,18 +187,40 @@ function createWindow(): void {
     },
   });
 
+  mainWindow = win;
+  win.on('closed', () => {
+    if (mainWindow === win) {
+      mainWindow = null;
+    }
+  });
+
   if (process.env.VITE_DEV_SERVER_URL || !app.isPackaged) {
     const devUrl = process.env.VITE_DEV_SERVER_URL ?? 'http://localhost:5173';
     void win.loadURL(devUrl);
   } else {
-    void win.loadFile(path.join(__dirname, '../dist/index.html'));
+    void win.loadURL('dejamove://app/index.html');
   }
 }
 
 app.whenReady().then(() => {
-  const binaryPath = resolveCoreBinary();
-  const storagePath = path.join(app.getPath('userData'), 'repertoire.json');
-  coreClient.start(binaryPath, storagePath);
+  if (!gotLock) return;
+
+  if (app.isPackaged) {
+    Menu.setApplicationMenu(null);
+  }
+
+  registerAppProtocol();
+
+  try {
+    const binaryPath = resolveCoreBinary();
+    const storagePath = path.join(app.getPath('userData'), 'repertoire.json');
+    coreClient.start(binaryPath, storagePath);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    dialog.showErrorBox('DejaMove Startup Error', message);
+    app.quit();
+    return;
+  }
 
   ipcMain.handle('dejamove:rpc', (_event, method: string, params?: Record<string, unknown>) =>
     coreClient.call(method, params ?? {}),

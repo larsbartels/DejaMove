@@ -1,5 +1,6 @@
 # Build outputs
 build/
+!ui/build/
 out/
 cmake-build-*/
 CMakeUserPresets.json
@@ -23,6 +24,7 @@ dist/
 dist-electron/
 release/
 *.tsbuildinfo
+ui/public/stockfish/
 
 # Logs & caches
 *.log

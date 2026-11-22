@@ -5,6 +5,10 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+if(MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
 include(FetchContent)
 include(CTest)
 set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
@@ -37,6 +41,7 @@ add_library(dejamove_lib STATIC
     src/repertoire_graph.cpp
     src/persistence.cpp
     src/training_engine.cpp
+    src/uci_engine.cpp
     src/rpc_server.cpp
 )
 
@@ -82,6 +87,7 @@ if(BUILD_TESTING)
         tests/repertoire_graph_test.cpp
         tests/rpc_and_persistence_test.cpp
         tests/training_engine_test.cpp
+        tests/uci_engine_test.cpp
     )
 
     target_link_libraries(dejamove_tests

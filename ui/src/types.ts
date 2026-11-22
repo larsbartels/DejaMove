@@ -128,6 +128,31 @@ export interface TrainingSubmitResponse {
   session: TrainingSessionState;
 }
 
+export interface ContinuationOption {
+  uci: string;
+  san: string;
+  segmentId: string;
+  plyIndex: number;
+  description: string;
+}
+
+export interface EngineLine {
+  multipv: number;
+  depth: number;
+  isMate: boolean;
+  centipawns: number;
+  mateIn: number;
+  pvUci: string[];
+}
+
+export interface AnalysisPly {
+  fen: string;
+  sideToMove: Side;
+  legalMoves: LegalMove[];
+  uci?: string;
+  san?: string;
+}
+
 declare global {
   interface Window {
     dejamove: {

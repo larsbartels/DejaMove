@@ -437,6 +437,50 @@ nlohmann::json RpcServer::dispatch_method(std::string_view method, const nlohman
         };
     }
 
+    if (method == "engine.status") {
+        return nlohmann::json{
+            {"available", uci_engine_.is_available()},
+            {"enginePath", uci_engine_.engine_path()},
+        };
+    }
+
+    if (method == "engine.configure") {
+        const std::string path = params.value("path", "");
+        const int threads = params.value("threads", 1);
+        const bool ok = uci_engine_.configure(path, threads);
+        return nlohmann::json{
+            {"ok", ok},
+            {"available", uci_engine_.is_available()},
+            {"enginePath", uci_engine_.engine_path()},
+        };
+    }
+
+    if (method == "engine.analyze") {
+        const std::string fen = params.value("fen", "");
+        const int multi_pv = params.value("multiPv", 3);
+        const int depth = params.value("depth", 14);
+        const int move_time_ms = params.value("moveTimeMs", 800);
+
+        const auto res = uci_engine_.analyze(fen, multi_pv, depth, move_time_ms);
+        nlohmann::json lines_arr = nlohmann::json::array();
+        for (const auto& l : res.lines) {
+            lines_arr.push_back(nlohmann::json{
+                {"multipv", l.multipv},
+                {"depth", l.depth},
+                {"isMate", l.eval.is_mate},
+                {"centipawns", l.eval.centipawns},
+                {"mateIn", l.eval.mate_in},
+                {"pvUci", l.pv_uci},
+            });
+        }
+        return nlohmann::json{
+            {"ok", res.ok},
+            {"error", res.error},
+            {"fen", res.fen},
+            {"lines", std::move(lines_arr)},
+        };
+    }
+
     throw std::runtime_error("Method not found: " + std::string(method));
 }
 

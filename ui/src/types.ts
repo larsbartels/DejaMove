@@ -153,6 +153,34 @@ export interface AnalysisPly {
   san?: string;
 }
 
+export type PositionMatchKind = 'start' | 'interior' | 'end';
+
+export interface PositionMatch {
+  segmentId: string;
+  name: string;
+  side: Side;
+  plyIndex: number;
+  matchKind: PositionMatchKind;
+  moveSan: string;
+  nextMoveSan: string;
+  effectiveScore: number;
+}
+
+export interface FindByFenResponse {
+  ok: boolean;
+  error?: string;
+  fen?: string;
+  normalizedFen?: string;
+  sideToMove?: Side;
+  matches: PositionMatch[];
+}
+
+export interface EditorTargetLocation {
+  segmentId: string;
+  plyIndex: number;
+  nonce: number;
+}
+
 declare global {
   interface Window {
     dejamove: {

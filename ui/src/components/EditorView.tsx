@@ -1,19 +1,30 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { ChessBoardView } from './ChessBoardView';
 import { BoardSetupModal } from './BoardSetupModal';
 import type {
   AddVariantResponse,
   BoardArrow,
   BoardStateResponse,
+  EditorTargetLocation,
+  FindByFenResponse,
   LegalMove,
+  PositionMatch,
   Side,
   VariantSegment,
 } from '../types';
 
 interface EditorViewProps {
   segments: VariantSegment[];
+  targetLocation?: EditorTargetLocation | null;
   onRefresh: () => Promise<void>;
   onTrainVariant: (segmentId: string) => void;
+  onOpenFenInAnalysis: (fen: string) => void;
+}
+
+function formatMatchLocation(m: PositionMatch): string {
+  if (m.matchKind === 'start') return 'Start';
+  if (m.matchKind === 'end') return m.moveSan ? `End (${m.moveSan})` : 'End';
+  return m.moveSan ? `After ${m.moveSan}` : `Ply ${m.plyIndex}`;
 }
 
 interface EditorPly {
@@ -25,7 +36,13 @@ interface EditorPly {
   description: string;
 }
 
-export function EditorView({ segments, onRefresh, onTrainVariant }: EditorViewProps) {
+export function EditorView({
+  segments,
+  targetLocation,
+  onRefresh,
+  onTrainVariant,
+  onOpenFenInAnalysis,
+}: EditorViewProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [recordingMode, setRecordingMode] = useState(false);
   const [branchSource, setBranchSource] = useState<{
@@ -42,6 +59,9 @@ export function EditorView({ segments, onRefresh, onTrainVariant }: EditorViewPr
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [linkParentId, setLinkParentId] = useState('');
+  const [fenQuery, setFenQuery] = useState('');
+  const [fenSearchResult, setFenSearchResult] = useState<FindByFenResponse | null>(null);
+  const [fenSearchError, setFenSearchError] = useState<string | null>(null);
 
   const selectedSegment = useMemo(
     () => segments.find((s) => s.id === selectedId) ?? null,
@@ -68,7 +88,7 @@ export function EditorView({ segments, onRefresh, onTrainVariant }: EditorViewPr
     setCursor(0);
   }, []);
 
-  const loadSegmentIntoBoard = useCallback(async (seg: VariantSegment) => {
+  const loadSegmentIntoBoard = useCallback(async (seg: VariantSegment, targetCursor?: number) => {
     const startState = await window.dejamove.rpc<BoardStateResponse>('board.state', {
       fen: seg.startFen,
     });
@@ -91,8 +111,12 @@ export function EditorView({ segments, onRefresh, onTrainVariant }: EditorViewPr
         description: m.description,
       });
     }
+    const nextCursor =
+      targetCursor !== undefined
+        ? Math.max(0, Math.min(targetCursor, plies.length - 1))
+        : plies.length - 1;
     setHistory(plies);
-    setCursor(plies.length - 1);
+    setCursor(nextCursor);
     setOrientation(seg.side);
     setDraftName(seg.name);
     setDraftSide(seg.side);
@@ -104,7 +128,19 @@ export function EditorView({ segments, onRefresh, onTrainVariant }: EditorViewPr
   }, []);
 
   useEffect(() => {
+    if (!targetLocation) return;
+    const seg = segments.find((s) => s.id === targetLocation.segmentId);
+    if (seg) {
+      setSelectedId(seg.id);
+      void loadSegmentIntoBoard(seg, targetLocation.plyIndex);
+    }
+  }, [targetLocation, segments, loadSegmentIntoBoard]);
+
+  useEffect(() => {
     if (!recordingMode && !selectedSegment) {
+      if (targetLocation && segments.some((s) => s.id === targetLocation.segmentId)) {
+        return;
+      }
       if (segments.length > 0) {
         setSelectedId(segments[0].id);
         void loadSegmentIntoBoard(segments[0]);
@@ -112,7 +148,14 @@ export function EditorView({ segments, onRefresh, onTrainVariant }: EditorViewPr
         void loadBoardAtFen();
       }
     }
-  }, [segments, selectedSegment, recordingMode, loadSegmentIntoBoard, loadBoardAtFen]);
+  }, [
+    segments,
+    selectedSegment,
+    recordingMode,
+    targetLocation,
+    loadSegmentIntoBoard,
+    loadBoardAtFen,
+  ]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -145,6 +188,61 @@ export function EditorView({ segments, onRefresh, onTrainVariant }: EditorViewPr
     setErrorMsg(null);
     setStatusMsg(null);
     await loadBoardAtFen();
+  };
+
+  const startNewVariantFromFen = async (fen: string, side: Side) => {
+    setSelectedId(null);
+    setRecordingMode(true);
+    setBranchSource(null);
+    setDraftName('');
+    setDraftSide(side);
+    setOrientation(side);
+    setErrorMsg(null);
+    setStatusMsg('Recording new variant from imported FEN. Play moves and click Save Variant.');
+    await loadBoardAtFen(fen);
+  };
+
+  const jumpToMatch = (match: PositionMatch) => {
+    const seg = segments.find((s) => s.id === match.segmentId);
+    if (!seg) return;
+    setSelectedId(seg.id);
+    setRecordingMode(false);
+    setBranchSource(null);
+    void loadSegmentIntoBoard(seg, match.plyIndex);
+  };
+
+  const handleFenSearch = async (e: FormEvent) => {
+    e.preventDefault();
+    const trimmed = fenQuery.trim();
+    if (!trimmed) {
+      setFenSearchResult(null);
+      setFenSearchError(null);
+      return;
+    }
+    try {
+      const res = await window.dejamove.rpc<FindByFenResponse>('repertoire.findByFen', {
+        fen: trimmed,
+      });
+      if (!res.ok) {
+        setFenSearchResult(null);
+        setFenSearchError(res.error ?? 'Invalid FEN');
+        return;
+      }
+      setFenSearchError(null);
+      setFenSearchResult(res);
+      if (res.matches.length > 0) {
+        jumpToMatch(res.matches[0]);
+      }
+    } catch (err) {
+      setFenSearchResult(null);
+      setFenSearchError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const clearFenSearch = () => {
+    setFenQuery('');
+    setFenSearchResult(null);
+    setFenSearchError(null);
   };
 
   const startBranchFromCursor = async () => {
@@ -362,6 +460,97 @@ export function EditorView({ segments, onRefresh, onTrainVariant }: EditorViewPr
               + New
             </button>
           </div>
+
+          <div className="fen-search-box">
+            <form className="fen-search-form" onSubmit={(e) => void handleFenSearch(e)}>
+              <input
+                type="text"
+                value={fenQuery}
+                onChange={(e) => setFenQuery(e.target.value)}
+                placeholder="Paste FEN to find variant..."
+              />
+              <button type="submit">Find</button>
+              {(fenQuery || fenSearchResult || fenSearchError) && (
+                <button type="button" onClick={clearFenSearch}>
+                  Clear
+                </button>
+              )}
+            </form>
+
+            {fenSearchError && <div className="fen-error">{fenSearchError}</div>}
+
+            {fenSearchResult && fenSearchResult.ok && (
+              <div className="fen-results">
+                {fenSearchResult.matches.length > 0 ? (
+                  <>
+                    <div className="panel-header-row" style={{ marginBottom: 4 }}>
+                      <span className="muted">
+                        {fenSearchResult.matches.length === 1
+                          ? '1 matching position'
+                          : `${fenSearchResult.matches.length} matching positions`}
+                      </span>
+                      {fenSearchResult.fen && (
+                        <button
+                          type="button"
+                          className="link-chip"
+                          onClick={() => onOpenFenInAnalysis(fenSearchResult.fen!)}
+                        >
+                          Analyze FEN
+                        </button>
+                      )}
+                    </div>
+                    {fenSearchResult.matches.map((m) => (
+                      <button
+                        key={`${m.segmentId}-${m.plyIndex}`}
+                        type="button"
+                        className="fen-match-item"
+                        onClick={() => jumpToMatch(m)}
+                      >
+                        <div className="variant-item-top">
+                          <span className={`side-badge ${m.side}`}>
+                            {m.side === 'white' ? 'W' : 'B'}
+                          </span>
+                          <span className="variant-name">{m.name}</span>
+                          <span className="score-badge">{Math.round(m.effectiveScore)}%</span>
+                        </div>
+                        <div className="variant-item-sub">
+                          <span>{formatMatchLocation(m)}</span>
+                          {m.nextMoveSan && <span>Next: {m.nextMoveSan}</span>}
+                        </div>
+                      </button>
+                    ))}
+                  </>
+                ) : (
+                  <div className="fen-empty-actions">
+                    <span className="muted">No variant contains this position.</span>
+                    {fenSearchResult.fen && (
+                      <div className="form-row">
+                        <button
+                          type="button"
+                          className="primary"
+                          onClick={() =>
+                            void startNewVariantFromFen(
+                              fenSearchResult.fen!,
+                              fenSearchResult.sideToMove ?? 'white',
+                            )
+                          }
+                        >
+                          + Create Variant from FEN
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onOpenFenInAnalysis(fenSearchResult.fen!)}
+                        >
+                          Open in Analysis
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           <div className="variant-list">
             {segments.length === 0 ? (
               <p className="muted">No variants yet. Click + New to create one.</p>

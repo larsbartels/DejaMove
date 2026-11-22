@@ -58,3 +58,14 @@ TEST_CASE("ChessBoard supports promotions and rejects invalid FENs", "[chess_boa
 
     REQUIRE_FALSE(ChessBoard::from_fen("not-a-valid-fen").has_value());
 }
+
+TEST_CASE("ChessBoard parses 4-field FENs and trims surrounding whitespace", "[chess_board]") {
+    auto board =
+        ChessBoard::from_fen("  rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq -  \n");
+    REQUIRE(board.has_value());
+    REQUIRE(board->side_to_move() == Side::White);
+    REQUIRE(board->normalized_fen() == "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq -");
+    REQUIRE(board->make_san_move("Nf3").has_value());
+
+    REQUIRE_FALSE(ChessBoard::from_fen("   \t\n ").has_value());
+}

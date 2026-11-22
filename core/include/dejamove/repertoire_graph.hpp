@@ -52,6 +52,18 @@ struct Continuation {
     std::string description;
 };
 
+enum class PositionMatchKind { Start, Interior, End };
+
+struct PositionMatch {
+    std::string segment_id;
+    std::string segment_name;
+    Side side = Side::White;
+    std::size_t ply_index = 0; // 0 = start_fen, 1..moves.size() = after moves[ply_index - 1]
+    PositionMatchKind match_kind = PositionMatchKind::Start;
+    std::string move_san;      // Empty when ply_index == 0
+    std::string next_move_san; // Empty when ply_index == moves.size()
+};
+
 struct AddVariantResult {
     bool ok = false;
     std::string error;
@@ -116,6 +128,12 @@ class RepertoireGraph {
      * @brief Returns all defined repertoire continuations from any position (by normalized FEN).
      */
     [[nodiscard]] std::vector<Continuation> continuations_at(std::string_view normalized_fen) const;
+
+    /**
+     * @brief Finds every variant segment and ply index whose position matches `normalized_fen`.
+     */
+    [[nodiscard]] std::vector<PositionMatch>
+    find_positions_by_fen(std::string_view normalized_fen) const;
 
     /**
      * @brief Returns the normalized FEN of the position right before `ply_index` in `segment`.

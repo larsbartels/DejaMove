@@ -194,9 +194,8 @@ function createWindow(): void {
     }
   });
 
-  if (process.env.VITE_DEV_SERVER_URL || !app.isPackaged) {
-    const devUrl = process.env.VITE_DEV_SERVER_URL ?? 'http://localhost:5173';
-    void win.loadURL(devUrl);
+  if (process.env.VITE_DEV_SERVER_URL) {
+    void win.loadURL(process.env.VITE_DEV_SERVER_URL);
   } else {
     void win.loadURL('dejamove://app/index.html');
   }
@@ -205,7 +204,7 @@ function createWindow(): void {
 app.whenReady().then(() => {
   if (!gotLock) return;
 
-  if (app.isPackaged) {
+  if (app.isPackaged || !process.env.VITE_DEV_SERVER_URL) {
     Menu.setApplicationMenu(null);
   }
 

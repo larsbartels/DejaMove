@@ -191,3 +191,29 @@ TEST_CASE("find_positions_by_fen locates start, interior, end, and transposed ma
     REQUIRE(unplayed.make_san_move("a4").has_value());
     REQUIRE(graph.find_positions_by_fen(unplayed.normalized_fen()).empty());
 }
+
+TEST_CASE("continuations_at reports owning variant names including shared continuations",
+          "[repertoire_graph]") {
+    RepertoireGraph graph;
+    const std::string init_fen = ChessBoard().fen();
+
+    // Two distinct move-order variants transpose into the same QGD position and share 3. Nc3
+    const auto line1 = graph.add_variant("QGD via d4", Side::White, init_fen,
+                                         {{"d4"}, {"d5"}, {"c4"}, {"e6"}, {"Nc3"}, {"Nf6"}});
+    const auto line2 = graph.add_variant("QGD via c4", Side::White, init_fen,
+                                         {{"c4"}, {"e6"}, {"d4"}, {"d5"}, {"Nc3"}, {"Bb4"}});
+    REQUIRE(line1.ok);
+    REQUIRE(line2.ok);
+
+    ChessBoard qgd_board;
+    for (const char* san : {"d4", "d5", "c4", "e6"}) {
+        REQUIRE(qgd_board.make_san_move(san).has_value());
+    }
+
+    const auto conts = graph.continuations_at(qgd_board.normalized_fen());
+    REQUIRE(conts.size() == 1);
+    REQUIRE(conts[0].san == "Nc3");
+    REQUIRE(conts[0].variant_names.size() == 2);
+    REQUIRE(contains_id(conts[0].variant_names, "QGD via d4"));
+    REQUIRE(contains_id(conts[0].variant_names, "QGD via c4"));
+}

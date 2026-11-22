@@ -138,4 +138,13 @@ TEST_CASE("RpcServer repertoire.findByFen locates variants and handles unmatched
         R"({"jsonrpc":"2.0","id":4,"method":"repertoire.findByFen","params":{"fen":"not a fen"}})"));
     REQUIRE(bad["result"]["ok"] == false);
     REQUIRE(bad["result"]["matches"].empty());
+
+    // continuationsAt includes variantName and variantNames
+    const auto conts = nlohmann::json::parse(server.handle_line(
+        R"({"jsonrpc":"2.0","id":5,"method":"repertoire.continuationsAt","params":{"fen":"r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3"}})"));
+    REQUIRE(conts["result"]["continuations"].size() == 1);
+    REQUIRE(conts["result"]["continuations"][0]["san"] == "Bb5");
+    REQUIRE(conts["result"]["continuations"][0]["variantName"] == "Ruy Lopez");
+    REQUIRE(conts["result"]["continuations"][0]["variantNames"] ==
+            nlohmann::json::array({"Ruy Lopez"}));
 }

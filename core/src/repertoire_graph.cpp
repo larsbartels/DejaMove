@@ -360,34 +360,40 @@ std::vector<const VariantSegment*> RepertoireGraph::all_segments() const {
 
 std::vector<Continuation> RepertoireGraph::continuations_at(std::string_view normalized_fen) const {
     std::vector<Continuation> result;
-    std::unordered_set<std::string> seen_uci;
+    std::unordered_map<std::string, std::size_t> uci_to_index;
 
-    for (const auto& [_, seg] : segments_) {
-        if (seg.moves.empty()) {
-            continue;
-        }
-        if (seg.start_normalized_fen == normalized_fen) {
-            if (seen_uci.insert(seg.moves[0].uci).second) {
-                result.push_back(Continuation{
-                    .uci = seg.moves[0].uci,
-                    .san = seg.moves[0].san,
-                    .segment_id = seg.id,
-                    .ply_index = 0,
-                    .description = seg.moves[0].description,
-                });
+    auto record_continuation = [&](const VariantSegment& seg, std::size_t ply_index) {
+        const auto& step = seg.moves[ply_index];
+        auto [it, inserted] = uci_to_index.emplace(step.uci, result.size());
+        if (inserted) {
+            result.push_back(Continuation{
+                .uci = step.uci,
+                .san = step.san,
+                .segment_id = seg.id,
+                .segment_name = seg.name,
+                .variant_names = {seg.name},
+                .ply_index = ply_index,
+                .description = step.description,
+            });
+        } else {
+            auto& existing = result[it->second];
+            add_unique(existing.variant_names, seg.name);
+            if (existing.description.empty() && !step.description.empty()) {
+                existing.description = step.description;
             }
         }
-        for (std::size_t i = 0; i + 1 < seg.moves.size(); ++i) {
-            if (seg.moves[i].normalized_fen == normalized_fen) {
-                if (seen_uci.insert(seg.moves[i + 1].uci).second) {
-                    result.push_back(Continuation{
-                        .uci = seg.moves[i + 1].uci,
-                        .san = seg.moves[i + 1].san,
-                        .segment_id = seg.id,
-                        .ply_index = i + 1,
-                        .description = seg.moves[i + 1].description,
-                    });
-                }
+    };
+
+    for (const VariantSegment* seg : all_segments()) {
+        if (seg->moves.empty()) {
+            continue;
+        }
+        if (seg->start_normalized_fen == normalized_fen) {
+            record_continuation(*seg, 0);
+        }
+        for (std::size_t i = 0; i + 1 < seg->moves.size(); ++i) {
+            if (seg->moves[i].normalized_fen == normalized_fen) {
+                record_continuation(*seg, i + 1);
             }
         }
     }

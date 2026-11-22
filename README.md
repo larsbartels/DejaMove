@@ -57,10 +57,18 @@ Packaging outputs to `ui/release/`:
 - **Windows Installer:** `ui/release/DejaMove Setup 0.1.0.exe` (installs per-user with Start Menu & Desktop shortcuts so DejaMove launches like any native desktop app).
 - **Portable Executable:** `ui/release/DejaMove 0.1.0.exe` (runs directly without installation).
 
-Packaging outputs to `ui/release/`:
+### Makefile Shortcuts
 
-- **Windows Installer:** `ui/release/DejaMove Setup 0.1.0.exe` (installs per-user with Start Menu & Desktop shortcuts so DejaMove launches like any native desktop app).
-- **Portable Executable:** `ui/release/DejaMove 0.1.0.exe` (runs directly without installation).
+GNU `make` works on Windows (e.g., `winget install ezwinports.make`) as well as Linux/macOS:
+
+```sh
+make build         # Build C++ core (Release) and UI without launching
+make launch        # Launch the already-built app immediately (no rebuild)
+make dev           # Start hot-reload Vite + Electron dev mode
+make test          # Build Debug core and run CTest unit tests
+make package       # Build Release core and package standalone Windows app
+make help          # List all available Makefile targets
+```
 
 ### Useful Commands
 

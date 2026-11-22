@@ -6,6 +6,8 @@
   "scripts": {
     "setup:hooks": "git config core.hooksPath .githooks",
     "build:core": "cmake --build core/build --config Release --target dejamove-core",
+    "build": "npm run build:core && npm --prefix ui run build",
+    "launch": "node scripts/launch.mjs",
     "package": "npm run build:core && npm --prefix ui run package",
     "lint": "eslint .",
     "format": "prettier --write .",

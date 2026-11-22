@@ -79,6 +79,7 @@ The system should be structured into six loosely coupled modules communicating v
   1. Choose side (White / Black) and starting position (default or custom setup).
   2. Play moves step-by-step on the board to extend the line or create branches.
   3. Edit names, move descriptions, or prune/modify branches at any point.
+- **FEN Position Search & Import:** Paste any 4-field or 6-field FEN to find all variants containing that position (matching start, interior, and leaf positions regardless of move clocks), jump directly to the matching ply in the Editor, or create a new variant / open Analysis from an unmatched FEN.
 
 #### Automatic Splitting & Multi-Parent DAG Behavior
 
@@ -135,7 +136,8 @@ The system should be structured into six loosely coupled modules communicating v
 
 #### Analysis Board Capabilities
 
-- **Free Exploration:** Users can make any legal move on the board, explore arbitrary sidelines, and step backward/forward freely.
+- **Free Exploration:** Users can make any legal move on the board, explore arbitrary sidelines, load any FEN directly, and step backward/forward freely.
+- **Variant Lookup:** Displays matching variants containing the current board position with one-click navigation to that exact ply in the Repertoire Editor.
 - **Repertoire Overlay (Red Arrows):**
   - At any position on the analysis board, display **red arrows** for all moves that exist in the defined variants from that position.
   - Lookup should be position-based so repertoire moves are highlighted even if the user reached the position via a non-standard move order.

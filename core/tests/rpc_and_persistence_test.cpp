@@ -105,3 +105,37 @@ TEST_CASE("RpcServer drives training sessions including mistake recovery", "[rpc
     REQUIRE(scores["result"]["segments"].size() == 1);
     REQUIRE(scores["result"]["segments"][0]["stats"]["attempts"] == 1);
 }
+
+TEST_CASE("RpcServer repertoire.findByFen locates variants and handles unmatched/invalid FENs",
+          "[rpc]") {
+    RpcServer server;
+
+    REQUIRE(
+        nlohmann::json::parse(server.handle_line(
+            R"({"jsonrpc":"2.0","id":1,"method":"repertoire.addVariant","params":{"name":"Ruy Lopez","side":"white","moves":["e4","e5","Nf3","Nc6","Bb5"]}})"))
+            ["result"]["ok"] == true);
+
+    // Query with 4-field FEN (no move clocks) after 1. e4 e5 2. Nf3 Nc6
+    const auto hit = nlohmann::json::parse(server.handle_line(
+        R"({"jsonrpc":"2.0","id":2,"method":"repertoire.findByFen","params":{"fen":"r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq -"}})"));
+    REQUIRE(hit["result"]["ok"] == true);
+    REQUIRE(hit["result"]["matches"].size() == 1);
+    REQUIRE(hit["result"]["matches"][0]["name"] == "Ruy Lopez");
+    REQUIRE(hit["result"]["matches"][0]["plyIndex"] == 4);
+    REQUIRE(hit["result"]["matches"][0]["matchKind"] == "interior");
+    REQUIRE(hit["result"]["matches"][0]["moveSan"] == "Nc6");
+    REQUIRE(hit["result"]["matches"][0]["nextMoveSan"] == "Bb5");
+    REQUIRE(hit["result"]["matches"][0].contains("effectiveScore"));
+
+    // Valid FEN not present in repertoire -> ok: true, empty matches
+    const auto miss = nlohmann::json::parse(server.handle_line(
+        R"({"jsonrpc":"2.0","id":3,"method":"repertoire.findByFen","params":{"fen":"rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq - 0 1"}})"));
+    REQUIRE(miss["result"]["ok"] == true);
+    REQUIRE(miss["result"]["matches"].empty());
+
+    // Invalid FEN -> ok: false
+    const auto bad = nlohmann::json::parse(server.handle_line(
+        R"({"jsonrpc":"2.0","id":4,"method":"repertoire.findByFen","params":{"fen":"not a fen"}})"));
+    REQUIRE(bad["result"]["ok"] == false);
+    REQUIRE(bad["result"]["matches"].empty());
+}

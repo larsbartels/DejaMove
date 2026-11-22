@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChessBoardView } from './ChessBoardView';
 import { EvalBar } from './EvalBar';
 import { StockfishWasmService } from '../services/stockfishWorker';
@@ -8,6 +8,8 @@ import type {
   BoardStateResponse,
   ContinuationOption,
   EngineLine,
+  FindByFenResponse,
+  PositionMatch,
   Side,
 } from '../types';
 
@@ -20,6 +22,7 @@ export interface AnalysisHandoff {
 interface AnalysisViewProps {
   handoff?: AnalysisHandoff | null;
   onReturnToTrainer?: () => void;
+  onOpenVariantInEditor?: (segmentId: string, plyIndex: number) => void;
 }
 
 function formatLineEval(line: EngineLine): string {
@@ -30,11 +33,17 @@ function formatLineEval(line: EngineLine): string {
   return `${pawns >= 0 ? '+' : ''}${pawns.toFixed(2)}`;
 }
 
-export function AnalysisView({ handoff, onReturnToTrainer }: AnalysisViewProps) {
+export function AnalysisView({
+  handoff,
+  onReturnToTrainer,
+  onOpenVariantInEditor,
+}: AnalysisViewProps) {
   const [history, setHistory] = useState<AnalysisPly[]>([]);
   const [cursor, setCursor] = useState(0);
   const [orientation, setOrientation] = useState<Side>('white');
   const [repertoireMoves, setRepertoireMoves] = useState<ContinuationOption[]>([]);
+  const [positionMatches, setPositionMatches] = useState<PositionMatch[]>([]);
+  const [fenInput, setFenInput] = useState('');
   const [engineEnabled, setEngineEnabled] = useState(false);
   const [multiPv, setMultiPv] = useState(3);
   const [targetDepth, setTargetDepth] = useState<number | 'infinite'>(20);
@@ -81,17 +90,22 @@ export function AnalysisView({ handoff, onReturnToTrainer }: AnalysisViewProps) 
 
   const current = history[cursor];
 
-  // Fetch repertoire continuations (red arrows) whenever position changes.
+  // Fetch repertoire continuations (red arrows) and matching variants whenever position changes.
   useEffect(() => {
     if (!current) return;
     let cancelled = false;
-    void window.dejamove
-      .rpc<{ continuations: ContinuationOption[] }>('repertoire.continuationsAt', {
+    void Promise.all([
+      window.dejamove.rpc<{ continuations: ContinuationOption[] }>('repertoire.continuationsAt', {
         fen: current.fen,
-      })
-      .then((res) => {
+      }),
+      window.dejamove.rpc<FindByFenResponse>('repertoire.findByFen', {
+        fen: current.fen,
+      }),
+    ])
+      .then(([contRes, matchRes]) => {
         if (!cancelled) {
-          setRepertoireMoves(res.continuations ?? []);
+          setRepertoireMoves(contRes.continuations ?? []);
+          setPositionMatches(matchRes.ok ? (matchRes.matches ?? []) : []);
         }
       })
       .catch((err) => {
@@ -140,6 +154,31 @@ export function AnalysisView({ handoff, onReturnToTrainer }: AnalysisViewProps) 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [history.length]);
+
+  const handleLoadFen = async (e: FormEvent) => {
+    e.preventDefault();
+    const trimmed = fenInput.trim();
+    if (!trimmed) return;
+    try {
+      const res = await window.dejamove.rpc<BoardStateResponse>('board.state', { fen: trimmed });
+      if (!res.valid) {
+        setErrorMsg(res.error ?? 'Invalid FEN');
+        return;
+      }
+      setHistory([
+        {
+          fen: res.fen,
+          sideToMove: res.sideToMove,
+          legalMoves: res.legalMoves,
+        },
+      ]);
+      setCursor(0);
+      setErrorMsg(null);
+      setFenInput('');
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : String(err));
+    }
+  };
 
   const handleMove = async (uci: string) => {
     if (!current) return;
@@ -203,7 +242,7 @@ export function AnalysisView({ handoff, onReturnToTrainer }: AnalysisViewProps) 
             )}
           </div>
 
-          <div className="form-row" style={{ marginBottom: 12 }}>
+          <div className="form-row" style={{ marginBottom: 10 }}>
             <button
               type="button"
               onClick={() => setOrientation((o) => (o === 'white' ? 'black' : 'white'))}
@@ -214,6 +253,20 @@ export function AnalysisView({ handoff, onReturnToTrainer }: AnalysisViewProps) 
               Reset
             </button>
           </div>
+
+          <form
+            className="fen-search-form"
+            style={{ marginBottom: 12 }}
+            onSubmit={(e) => void handleLoadFen(e)}
+          >
+            <input
+              type="text"
+              value={fenInput}
+              onChange={(e) => setFenInput(e.target.value)}
+              placeholder="Paste FEN to load..."
+            />
+            <button type="submit">Load</button>
+          </form>
 
           <div className="engine-controls">
             <div className="panel-header-row">
@@ -292,6 +345,32 @@ export function AnalysisView({ handoff, onReturnToTrainer }: AnalysisViewProps) 
                   </li>
                 ))}
               </ul>
+            )}
+          </div>
+
+          <div className="repertoire-hits" style={{ marginTop: 10 }}>
+            <strong>Matching Variants</strong>
+            {positionMatches.length === 0 ? (
+              <p className="muted">Position not in any saved variant.</p>
+            ) : (
+              <div className="fen-results">
+                {positionMatches.map((m) => (
+                  <button
+                    key={`${m.segmentId}-${m.plyIndex}`}
+                    type="button"
+                    className="fen-match-item"
+                    onClick={() => onOpenVariantInEditor?.(m.segmentId, m.plyIndex)}
+                  >
+                    <div className="variant-item-top">
+                      <span className={`side-badge ${m.side}`}>
+                        {m.side === 'white' ? 'W' : 'B'}
+                      </span>
+                      <span className="variant-name">{m.name}</span>
+                      <span className="score-badge">{Math.round(m.effectiveScore)}%</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
             )}
           </div>
         </div>

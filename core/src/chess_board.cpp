@@ -7,6 +7,26 @@ namespace dejamove {
 
 namespace {
 
+std::string_view trim_ascii(std::string_view sv) {
+    constexpr std::string_view kWhitespace = " \t\r\n";
+    const std::size_t start = sv.find_first_not_of(kWhitespace);
+    if (start == std::string_view::npos) {
+        return {};
+    }
+    const std::size_t end = sv.find_last_not_of(kWhitespace);
+    return sv.substr(start, end - start + 1);
+}
+
+bool has_four_fen_fields(std::string_view fen) {
+    std::istringstream iss{std::string(fen)};
+    std::string f1;
+    std::string f2;
+    std::string f3;
+    std::string f4;
+    std::string extra;
+    return (iss >> f1 >> f2 >> f3 >> f4) && !(iss >> extra);
+}
+
 std::string normalize_fen_string(std::string_view full_fen) {
     // Keep only the first 4 space-delimited FEN fields:
     // placement, active color, castling availability, en passant target.
@@ -77,11 +97,23 @@ ChessBoard::ChessBoard(ChessBoard&&) noexcept = default;
 ChessBoard& ChessBoard::operator=(ChessBoard&&) noexcept = default;
 
 std::optional<ChessBoard> ChessBoard::from_fen(std::string_view fen) {
-    ChessBoard result;
-    if (!result.impl_->board.setFen(fen)) {
+    const std::string_view trimmed = trim_ascii(fen);
+    if (trimmed.empty()) {
         return std::nullopt;
     }
-    return result;
+
+    ChessBoard result;
+    if (result.impl_->board.setFen(trimmed)) {
+        return result;
+    }
+
+    if (has_four_fen_fields(trimmed)) {
+        const std::string padded = std::string(trimmed) + " 0 1";
+        if (result.impl_->board.setFen(padded)) {
+            return result;
+        }
+    }
+    return std::nullopt;
 }
 
 std::string ChessBoard::fen() const {

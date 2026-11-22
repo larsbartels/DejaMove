@@ -124,3 +124,70 @@ TEST_CASE("Variants support renaming, move descriptions, and clean removal", "[r
     REQUIRE(graph.find_segment(child.segment_id) == nullptr);
     REQUIRE(graph.find_segment(r1.segment_id)->child_ids.empty());
 }
+
+TEST_CASE("find_positions_by_fen locates start, interior, end, and transposed matches",
+          "[repertoire_graph]") {
+    RepertoireGraph graph;
+    const std::string init_fen = ChessBoard().fen();
+
+    // Split parent 1. e4 e5 into two children: 2. Nf3 Nc6 and 2. Bc4 Nf6
+    const auto r1 = graph.add_variant("King's Knight", Side::White, init_fen,
+                                      {{"e4"}, {"e5"}, {"Nf3"}, {"Nc6"}});
+    const auto r2 = graph.add_variant("Bishop's Opening", Side::White, init_fen,
+                                      {{"e4"}, {"e5"}, {"Bc4"}, {"Nf6"}});
+    REQUIRE(r1.ok);
+    REQUIRE(r2.ok);
+    REQUIRE(r2.split_occurred);
+
+    const std::string parent_id = r2.split_parent_id;
+    const auto* parent = graph.find_segment(parent_id);
+    REQUIRE(parent != nullptr);
+
+    // 1. Start position of parent
+    const auto start_matches =
+        graph.find_positions_by_fen(ChessBoard::from_fen(init_fen)->normalized_fen());
+    REQUIRE(start_matches.size() == 1);
+    REQUIRE(start_matches[0].segment_id == parent_id);
+    REQUIRE(start_matches[0].ply_index == 0);
+    REQUIRE(start_matches[0].match_kind == dejamove::PositionMatchKind::Start);
+    REQUIRE(start_matches[0].next_move_san == "e4");
+
+    // 2. Interior position of parent (after 1. e4) matched regardless of halfmove/fullmove clocks
+    ChessBoard after_e4;
+    REQUIRE(after_e4.make_san_move("e4").has_value());
+    const auto interior_matches = graph.find_positions_by_fen(after_e4.normalized_fen());
+    REQUIRE(interior_matches.size() == 1);
+    REQUIRE(interior_matches[0].segment_id == parent_id);
+    REQUIRE(interior_matches[0].ply_index == 1);
+    REQUIRE(interior_matches[0].match_kind == dejamove::PositionMatchKind::Interior);
+    REQUIRE(interior_matches[0].move_san == "e4");
+    REQUIRE(interior_matches[0].next_move_san == "e5");
+
+    // 3. Branch boundary (after 1. e4 e5): matches end of parent AND start of both children
+    const auto boundary_matches =
+        graph.find_positions_by_fen(RepertoireGraph::end_normalized_fen(*parent));
+    REQUIRE(boundary_matches.size() == 3);
+    REQUIRE(std::any_of(boundary_matches.begin(), boundary_matches.end(), [&](const auto& m) {
+        return m.segment_id == parent_id && m.match_kind == dejamove::PositionMatchKind::End;
+    }));
+    REQUIRE(std::any_of(boundary_matches.begin(), boundary_matches.end(), [&](const auto& m) {
+        return m.segment_id == r2.segment_id &&
+               m.match_kind == dejamove::PositionMatchKind::Start && m.next_move_san == "Bc4";
+    }));
+
+    // 4. Transposition in a separate line
+    const auto qgd1 =
+        graph.add_variant("QGD d4", Side::White, init_fen, {{"d4"}, {"d5"}, {"c4"}, {"e6"}});
+    const auto qgd2 =
+        graph.add_variant("QGD c4", Side::White, init_fen, {{"c4"}, {"e6"}, {"d4"}, {"d5"}});
+    REQUIRE(qgd1.ok);
+    REQUIRE(qgd2.ok);
+    const auto qgd_matches = graph.find_positions_by_fen(
+        RepertoireGraph::end_normalized_fen(*graph.find_segment(qgd1.segment_id)));
+    REQUIRE(qgd_matches.size() == 2);
+
+    // 5. Unmatched position returns empty
+    ChessBoard unplayed;
+    REQUIRE(unplayed.make_san_move("a4").has_value());
+    REQUIRE(graph.find_positions_by_fen(unplayed.normalized_fen()).empty());
+}

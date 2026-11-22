@@ -2,7 +2,13 @@ import { useCallback, useEffect, useState } from 'react';
 import { AnalysisView, type AnalysisHandoff } from './components/AnalysisView';
 import { EditorView } from './components/EditorView';
 import { TrainerView } from './components/TrainerView';
-import type { RepertoireListResponse, TrainingSessionState, VariantSegment } from './types';
+import type {
+  BoardStateResponse,
+  EditorTargetLocation,
+  RepertoireListResponse,
+  TrainingSessionState,
+  VariantSegment,
+} from './types';
 import './App.css';
 
 type AppMode = 'editor' | 'trainer' | 'analysis';
@@ -15,6 +21,7 @@ export function App() {
   const [selectedTrainId, setSelectedTrainId] = useState<string | null>(null);
   const [pausedTraining, setPausedTraining] = useState<TrainingSessionState | null>(null);
   const [analysisHandoff, setAnalysisHandoff] = useState<AnalysisHandoff | null>(null);
+  const [editorTarget, setEditorTarget] = useState<EditorTargetLocation | null>(null);
 
   const refreshRepertoire = useCallback(async () => {
     try {
@@ -54,6 +61,36 @@ export function App() {
 
   const handleReturnToTrainer = () => {
     setMode('trainer');
+  };
+
+  const handleOpenVariantInEditor = (segmentId: string, plyIndex: number) => {
+    setEditorTarget({ segmentId, plyIndex, nonce: Date.now() });
+    setMode('editor');
+  };
+
+  const handleOpenFenInAnalysis = async (fen: string) => {
+    try {
+      const res = await window.dejamove.rpc<BoardStateResponse>('board.state', { fen });
+      if (!res.valid) {
+        setErrorMsg(res.error ?? 'Invalid FEN');
+        return;
+      }
+      setErrorMsg(null);
+      setAnalysisHandoff({
+        history: [
+          {
+            fen: res.fen,
+            sideToMove: res.sideToMove,
+            legalMoves: res.legalMoves,
+          },
+        ],
+        cursor: 0,
+        orientation: res.sideToMove,
+      });
+      setMode('analysis');
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : String(err));
+    }
   };
 
   return (
@@ -103,8 +140,10 @@ export function App() {
       {mode === 'editor' && (
         <EditorView
           segments={segments}
+          targetLocation={editorTarget}
           onRefresh={refreshRepertoire}
           onTrainVariant={handleTrainVariant}
+          onOpenFenInAnalysis={(fen) => void handleOpenFenInAnalysis(fen)}
         />
       )}
       {mode === 'trainer' && (
@@ -120,6 +159,7 @@ export function App() {
         <AnalysisView
           handoff={analysisHandoff}
           onReturnToTrainer={pausedTraining ? handleReturnToTrainer : undefined}
+          onOpenVariantInEditor={handleOpenVariantInEditor}
         />
       )}
     </div>

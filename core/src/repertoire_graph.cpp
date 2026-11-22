@@ -394,6 +394,39 @@ std::vector<Continuation> RepertoireGraph::continuations_at(std::string_view nor
     return result;
 }
 
+std::vector<PositionMatch>
+RepertoireGraph::find_positions_by_fen(std::string_view normalized_fen) const {
+    std::vector<PositionMatch> matches;
+    for (const VariantSegment* seg : all_segments()) {
+        if (seg->start_normalized_fen == normalized_fen) {
+            matches.push_back(PositionMatch{
+                .segment_id = seg->id,
+                .segment_name = seg->name,
+                .side = seg->side,
+                .ply_index = 0,
+                .match_kind = PositionMatchKind::Start,
+                .move_san = "",
+                .next_move_san = seg->moves.empty() ? "" : seg->moves[0].san,
+            });
+        }
+        for (std::size_t i = 0; i < seg->moves.size(); ++i) {
+            if (seg->moves[i].normalized_fen == normalized_fen) {
+                const bool is_end = (i + 1 == seg->moves.size());
+                matches.push_back(PositionMatch{
+                    .segment_id = seg->id,
+                    .segment_name = seg->name,
+                    .side = seg->side,
+                    .ply_index = i + 1,
+                    .match_kind = is_end ? PositionMatchKind::End : PositionMatchKind::Interior,
+                    .move_san = seg->moves[i].san,
+                    .next_move_san = is_end ? "" : seg->moves[i + 1].san,
+                });
+            }
+        }
+    }
+    return matches;
+}
+
 std::string RepertoireGraph::position_before_ply(const VariantSegment& segment,
                                                  std::size_t ply_index) {
     if (ply_index == 0) {

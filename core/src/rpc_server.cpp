@@ -77,6 +77,18 @@ nlohmann::json make_error_response(const nlohmann::json& id, int code, const std
     };
 }
 
+std::string match_kind_to_string(PositionMatchKind kind) {
+    switch (kind) {
+    case PositionMatchKind::Start:
+        return "start";
+    case PositionMatchKind::Interior:
+        return "interior";
+    case PositionMatchKind::End:
+        return "end";
+    }
+    return "start";
+}
+
 std::int64_t current_epoch_ms() {
     using namespace std::chrono;
     return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
@@ -331,6 +343,44 @@ nlohmann::json RpcServer::dispatch_method(std::string_view method, const nlohman
             });
         }
         return nlohmann::json{{"continuations", std::move(arr)}};
+    }
+
+    if (method == "repertoire.findByFen") {
+        const std::string fen = params.value("fen", "");
+        const std::int64_t now_ms = params.value("nowMs", current_epoch_ms());
+        const auto board = ChessBoard::from_fen(fen);
+        if (!board.has_value()) {
+            return nlohmann::json{
+                {"ok", false},
+                {"error", "Invalid FEN"},
+                {"matches", nlohmann::json::array()},
+            };
+        }
+
+        nlohmann::json matches_arr = nlohmann::json::array();
+        for (const auto& m : repertoire_.find_positions_by_fen(board->normalized_fen())) {
+            double eff_score = 0.0;
+            if (const auto* seg = repertoire_.find_segment(m.segment_id)) {
+                eff_score = training_engine_.effective_score(seg->stats, now_ms);
+            }
+            matches_arr.push_back(nlohmann::json{
+                {"segmentId", m.segment_id},
+                {"name", m.segment_name},
+                {"side", m.side == Side::White ? "white" : "black"},
+                {"plyIndex", m.ply_index},
+                {"matchKind", match_kind_to_string(m.match_kind)},
+                {"moveSan", m.move_san},
+                {"nextMoveSan", m.next_move_san},
+                {"effectiveScore", eff_score},
+            });
+        }
+        return nlohmann::json{
+            {"ok", true},
+            {"fen", board->fen()},
+            {"normalizedFen", board->normalized_fen()},
+            {"sideToMove", board->side_to_move() == Side::White ? "white" : "black"},
+            {"matches", std::move(matches_arr)},
+        };
     }
 
     if (method == "repertoire.save") {

@@ -33,6 +33,12 @@ function formatLineEval(line: EngineLine): string {
   return `${pawns >= 0 ? '+' : ''}${pawns.toFixed(2)}`;
 }
 
+function formatMatchLocation(m: PositionMatch): string {
+  if (m.matchKind === 'start') return 'Start';
+  if (m.matchKind === 'end') return m.moveSan ? `End (${m.moveSan})` : 'End';
+  return m.moveSan ? `After ${m.moveSan}` : `Ply ${m.plyIndex}`;
+}
+
 export function AnalysisView({
   handoff,
   onReturnToTrainer,
@@ -200,27 +206,40 @@ export function AnalysisView({
 
   const arrows: BoardArrow[] = useMemo(() => {
     const list: BoardArrow[] = [];
-    for (const c of repertoireMoves) {
-      if (c.uci.length >= 4) {
-        list.push({
-          orig: c.uci.slice(0, 2),
-          dest: c.uci.slice(2, 4),
-          brush: 'red',
-        });
-      }
-    }
+    const engineMoveKeys = new Set<string>();
+
     if (engineEnabled) {
       for (const line of engineLines.slice(0, multiPv)) {
         const best = line.pvUci[0];
         if (best && best.length >= 4) {
+          const orig = best.slice(0, 2);
+          const dest = best.slice(2, 4);
+          engineMoveKeys.add(`${orig}-${dest}`);
           list.push({
-            orig: best.slice(0, 2),
-            dest: best.slice(2, 4),
+            orig,
+            dest,
             brush: 'blue',
           });
         }
       }
     }
+
+    // Draw variant continuation arrows after engine arrows so red stays visible on top,
+    // using a slimmer line width when overlapping a blue Stockfish arrow.
+    for (const c of repertoireMoves) {
+      if (c.uci.length >= 4) {
+        const orig = c.uci.slice(0, 2);
+        const dest = c.uci.slice(2, 4);
+        const overlapsEngine = engineMoveKeys.has(`${orig}-${dest}`);
+        list.push({
+          orig,
+          dest,
+          brush: 'red',
+          lineWidth: overlapsEngine ? 6 : undefined,
+        });
+      }
+    }
+
     return list;
   }, [repertoireMoves, engineEnabled, engineLines, multiPv]);
 
@@ -232,7 +251,7 @@ export function AnalysisView({
   return (
     <div className="workspace">
       <aside className="repertoire-pane">
-        <div className="panel-card repertoire-card">
+        <div className="panel-card repertoire-card analysis-controls-card">
           <div className="panel-header-row">
             <h2>Analysis</h2>
             {onReturnToTrainer && (
@@ -332,18 +351,24 @@ export function AnalysisView({
               <p className="muted">No repertoire moves at this position.</p>
             ) : (
               <ul className="repertoire-hit-list">
-                {repertoireMoves.map((m) => (
-                  <li key={`${m.segmentId}-${m.uci}`}>
-                    <button
-                      type="button"
-                      className="link-chip"
-                      onClick={() => void handleMove(m.uci)}
-                    >
-                      {m.san}
-                    </button>
-                    {m.description && <span className="muted"> — {m.description}</span>}
-                  </li>
-                ))}
+                {repertoireMoves.map((m) => {
+                  const namesLabel = m.variantNames?.length
+                    ? m.variantNames.join(', ')
+                    : m.variantName;
+                  return (
+                    <li key={`${m.segmentId}-${m.uci}`}>
+                      <button
+                        type="button"
+                        className="link-chip"
+                        onClick={() => void handleMove(m.uci)}
+                      >
+                        {m.san}
+                      </button>
+                      {namesLabel && <span className="muted"> ({namesLabel})</span>}
+                      {m.description && <span className="muted"> — {m.description}</span>}
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>
@@ -376,22 +401,46 @@ export function AnalysisView({
         </div>
       </aside>
 
-      <section className="board-pane analysis-board-pane">
-        {errorMsg && <div className="error-banner">{errorMsg}</div>}
-        <EvalBar topLine={engineLines[0]} orientation={orientation} enabled={engineEnabled} />
-        {current ? (
-          <ChessBoardView
-            fen={current.fen}
-            orientation={orientation}
-            turnColor={current.sideToMove}
-            legalMoves={current.legalMoves}
-            arrows={arrows}
-            lastMove={lastMove}
-            onMove={(uci) => void handleMove(uci)}
-          />
-        ) : (
-          <div className="board-placeholder">Loading board...</div>
+      <section className="analysis-center-col">
+        {positionMatches.length > 0 && (
+          <div className="analysis-variant-banner">
+            <span className="analysis-variant-banner-label">
+              {positionMatches.length === 1 ? 'Variant:' : 'Variants:'}
+            </span>
+            <div className="analysis-variant-banner-chips">
+              {positionMatches.map((m) => (
+                <button
+                  key={`${m.segmentId}-${m.plyIndex}`}
+                  type="button"
+                  className="variant-banner-chip"
+                  onClick={() => onOpenVariantInEditor?.(m.segmentId, m.plyIndex)}
+                  title="Open variant at this position in Editor"
+                >
+                  <span className={`side-badge ${m.side}`}>{m.side === 'white' ? 'W' : 'B'}</span>
+                  <span>{m.name}</span>
+                  <span className="muted">· {formatMatchLocation(m)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
         )}
+        {errorMsg && <div className="error-banner">{errorMsg}</div>}
+        <div className={`analysis-stage ${positionMatches.length > 0 ? 'has-banner' : ''}`}>
+          <EvalBar topLine={engineLines[0]} orientation={orientation} enabled={engineEnabled} />
+          {current ? (
+            <ChessBoardView
+              fen={current.fen}
+              orientation={orientation}
+              turnColor={current.sideToMove}
+              legalMoves={current.legalMoves}
+              arrows={arrows}
+              lastMove={lastMove}
+              onMove={(uci) => void handleMove(uci)}
+            />
+          ) : (
+            <div className="board-placeholder">Loading board...</div>
+          )}
+        </div>
       </section>
 
       <aside className="side-pane">

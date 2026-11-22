@@ -26,6 +26,7 @@ export interface BoardArrow {
   orig: string;
   dest: string;
   brush: 'red' | 'blue' | 'green' | 'yellow';
+  lineWidth?: number;
 }
 
 export interface MoveStep {
@@ -132,6 +133,8 @@ export interface ContinuationOption {
   uci: string;
   san: string;
   segmentId: string;
+  variantName?: string;
+  variantNames?: string[];
   plyIndex: number;
   description: string;
 }

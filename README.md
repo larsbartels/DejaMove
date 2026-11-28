@@ -77,3 +77,18 @@ npm run lint          # Run ESLint across the repo
 npm run format        # Format JS/TS/JSON/CSS/MD files with Prettier
 npm run format:check  # Check formatting without modifying files
 ```
+
+---
+
+## Cloud Sync & Backup (Google Drive)
+
+DejaMove keeps all repertoire data local-first with atomic saves, and optionally connects directly to Google Drive (`drive.file` scope — access is restricted to files DejaMove itself creates inside `DejaMove/`):
+
+- **Multi-PC Smart Sync (`DejaMove/repertoire.json`):** Combines variants across computers in `dejamove-core`, keeps the newest training stats per variant, remaps colliding IDs/DAG links cleanly, and can run manually or automatically on startup.
+- **Timestamped Backup Snapshots (`DejaMove/backups/`):** Create manual point-in-time snapshots before major repertoire edits and restore any snapshot with confirmation.
+
+### Google Drive OAuth Setup (Desktop App)
+
+1. Open [Google Cloud Console](https://console.cloud.google.com/), create/select a project, and enable the **Google Drive API**.
+2. Configure the **OAuth consent screen** (for personal use, set Publishing Status to **Testing**, add your Google account as a test user, and add scope `https://www.googleapis.com/auth/drive.file`).
+3. Under **Credentials → Create Credentials → OAuth client ID**, choose **Desktop app**, then click **Cloud Sync** in DejaMove's header and paste your Client ID (and Client Secret if provided) to sign in.

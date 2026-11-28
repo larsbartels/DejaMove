@@ -156,10 +156,14 @@ The system should be structured into six loosely coupled modules communicating v
 
 ---
 
-### 3.5 Standalone Application & Persistence
+### 3.5 Standalone Application, Persistence & Cloud Sync/Backup
 
 - Must run as a **standalone desktop application** (no external server or manual terminal setup required for end users).
-- All variants, graph relationships, move descriptions, and training scores must persist locally between sessions.
+- **Local-First Atomic Persistence:** All variants, graph relationships, move descriptions, and training scores persist locally between sessions via atomic temporary-file write-and-replace.
+- **Smart-Merged Cloud Sync (`SyncProvider` / Google Drive):**
+  - Behind a pluggable `SyncProvider` interface in the Electron main process, DejaMove integrates directly with **Google Drive** using OAuth 2.0 + PKCE (`drive.file` scope, accessing only DejaMove's own `DejaMove/` folder) with OS-encrypted credentials/tokens (`safeStorage`).
+  - **Multi-PC Smart Merge:** Syncing merges local and remote variants in `DejaMove/repertoire.json` inside `dejamove-core` by normalized position signature, preserving non-conflicting lines, remapping colliding segment IDs and DAG links cleanly, filling missing descriptions, and retaining the newest training statistics (`lastPracticedMs`) per variant. Supports manual sync and optional auto-sync on startup.
+  - **Timestamped Backups & Restore:** Users can create timestamped point-in-time JSON snapshots in `DejaMove/backups/` and restore a selected snapshot (with confirmation) to replace the local repertoire cleanly.
 
 ---
 

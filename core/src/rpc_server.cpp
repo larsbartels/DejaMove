@@ -405,6 +405,50 @@ nlohmann::json RpcServer::dispatch_method(std::string_view method, const nlohman
         return nlohmann::json{{"ok", ok}, {"error", err}};
     }
 
+    if (method == "repertoire.exportJson") {
+        return nlohmann::json{
+            {"ok", true},
+            {"repertoire", serialize_repertoire(repertoire_)},
+        };
+    }
+
+    if (method == "repertoire.importJson") {
+        const nlohmann::json& payload =
+            params.contains("repertoire") ? params["repertoire"] : params;
+        RepertoireGraph imported;
+        std::string err;
+        if (!deserialize_repertoire(payload, imported, err)) {
+            return nlohmann::json{{"ok", false}, {"error", err}};
+        }
+        repertoire_ = std::move(imported);
+        auto_save_if_configured();
+        return nlohmann::json{{"ok", true}, {"error", ""}};
+    }
+
+    if (method == "repertoire.mergeJson") {
+        const nlohmann::json& payload =
+            params.contains("repertoire") ? params["repertoire"] : params;
+        RepertoireGraph remote;
+        std::string err;
+        if (!deserialize_repertoire(payload, remote, err)) {
+            return nlohmann::json{
+                {"ok", false},
+                {"error", err},
+                {"added", 0},
+                {"updated", 0},
+            };
+        }
+        MergeResult merged = merge_repertoires(repertoire_, remote);
+        repertoire_ = std::move(merged.merged);
+        auto_save_if_configured();
+        return nlohmann::json{
+            {"ok", true},
+            {"error", ""},
+            {"added", merged.added_segments},
+            {"updated", merged.updated_segments},
+        };
+    }
+
     if (method == "training.listWithScores") {
         const std::int64_t now_ms = params.value("nowMs", current_epoch_ms());
         nlohmann::json out = serialize_repertoire(repertoire_);

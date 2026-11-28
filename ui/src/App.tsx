@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AnalysisView, type AnalysisHandoff } from './components/AnalysisView';
 import { EditorView } from './components/EditorView';
+import { SyncModal } from './components/SyncModal';
 import { TrainerView } from './components/TrainerView';
 import type {
   BoardStateResponse,
   EditorTargetLocation,
   RepertoireListResponse,
+  SyncStatus,
   TrainingSessionState,
   VariantSegment,
 } from './types';
@@ -22,6 +24,9 @@ export function App() {
   const [pausedTraining, setPausedTraining] = useState<TrainingSessionState | null>(null);
   const [analysisHandoff, setAnalysisHandoff] = useState<AnalysisHandoff | null>(null);
   const [editorTarget, setEditorTarget] = useState<EditorTargetLocation | null>(null);
+  const [showSyncModal, setShowSyncModal] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [syncBusy, setSyncBusy] = useState(false);
 
   const refreshRepertoire = useCallback(async () => {
     try {
@@ -39,6 +44,23 @@ export function App() {
         if (!ping.ok) throw new Error('Core ping failed');
         await refreshRepertoire();
         setCoreStatus('ready');
+
+        try {
+          const status = await window.dejamove.sync.getStatus();
+          setSyncStatus(status);
+          if (status.connected && status.autoSync) {
+            setSyncBusy(true);
+            const res = await window.dejamove.sync.syncNow();
+            if (res.ok) {
+              await refreshRepertoire();
+            }
+            setSyncStatus(await window.dejamove.sync.getStatus());
+          }
+        } catch {
+          // Non-fatal: startup sync failures are surfaced in sync status UI.
+        } finally {
+          setSyncBusy(false);
+        }
       } catch (err) {
         setCoreStatus('error');
         setErrorMsg(err instanceof Error ? err.message : String(err));
@@ -107,32 +129,48 @@ export function App() {
           </span>
         </div>
 
-        <nav className="mode-tabs">
+        <div className="header-actions">
+          <nav className="mode-tabs">
+            <button
+              type="button"
+              className={mode === 'editor' ? 'active' : ''}
+              onClick={() => setMode('editor')}
+            >
+              Repertoire Editor
+            </button>
+            <button
+              type="button"
+              className={mode === 'trainer' ? 'active' : ''}
+              onClick={() => setMode('trainer')}
+            >
+              Trainer
+            </button>
+            <button
+              type="button"
+              className={mode === 'analysis' ? 'active' : ''}
+              onClick={() => {
+                setAnalysisHandoff(null);
+                setMode('analysis');
+              }}
+            >
+              Analysis Board
+            </button>
+          </nav>
+
           <button
             type="button"
-            className={mode === 'editor' ? 'active' : ''}
-            onClick={() => setMode('editor')}
+            className="sync-header-btn"
+            onClick={() => setShowSyncModal(true)}
+            title="Google Drive sync & backup snapshots"
           >
-            Repertoire Editor
+            <span
+              className={`sync-dot ${
+                syncBusy ? 'syncing' : syncStatus?.connected ? 'connected' : ''
+              }`}
+            />
+            {syncBusy ? 'Syncing...' : 'Cloud Sync'}
           </button>
-          <button
-            type="button"
-            className={mode === 'trainer' ? 'active' : ''}
-            onClick={() => setMode('trainer')}
-          >
-            Trainer
-          </button>
-          <button
-            type="button"
-            className={mode === 'analysis' ? 'active' : ''}
-            onClick={() => {
-              setAnalysisHandoff(null);
-              setMode('analysis');
-            }}
-          >
-            Analysis Board
-          </button>
-        </nav>
+        </div>
       </header>
 
       {errorMsg && <div className="error-banner">{errorMsg}</div>}
@@ -160,6 +198,15 @@ export function App() {
           handoff={analysisHandoff}
           onReturnToTrainer={pausedTraining ? handleReturnToTrainer : undefined}
           onOpenVariantInEditor={handleOpenVariantInEditor}
+        />
+      )}
+
+      {showSyncModal && (
+        <SyncModal
+          initialStatus={syncStatus}
+          onClose={() => setShowSyncModal(false)}
+          onStatusChange={setSyncStatus}
+          onRepertoireChanged={refreshRepertoire}
         />
       )}
     </div>

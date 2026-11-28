@@ -399,6 +399,7 @@ button.danger:hover:not(:disabled) {
 }
 
 input[type='text'],
+input[type='password'],
 select,
 textarea {
   background: #161512;
@@ -852,6 +853,131 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.sync-header-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sync-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #6e6a61;
+}
+
+.sync-dot.connected {
+  background: #67d98b;
+}
+
+.sync-dot.syncing {
+  background: #93c5fd;
+}
+
+.sync-modal {
+  width: min(680px, 95vw);
+  max-height: 88vh;
+  overflow-y: auto;
+}
+
+.sync-modal h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.sync-status-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sync-section {
+  border-top: 1px solid #2e2b25;
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sync-guide {
+  background: #161512;
+  border: 1px solid #2e2b25;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  color: #cfc9bc;
+}
+
+.sync-guide ol {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sync-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: #cfc9bc;
+  cursor: pointer;
+}
+
+.confirm-restore-box {
+  background: #3d1d1d;
+  border: 1px solid #8a3838;
+  border-radius: 6px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.confirm-restore-box p {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #f4d6d6;
+}
+
+.backup-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+  margin-top: 6px;
+}
+
+.backup-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  background: #161512;
+  border: 1px solid #2e2b25;
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.backup-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.backup-meta strong {
+  font-size: 0.82rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .muted {

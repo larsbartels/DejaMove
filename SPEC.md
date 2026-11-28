@@ -70,15 +70,16 @@ The system should be structured into six loosely coupled modules communicating v
 - **Flexible Depth & Branching:**
   - Variants have arbitrary depth and branching factor; different variants can have completely different shapes.
 - **Metadata:**
-  - Every variant has a **name** (user-editable; auto-generated sensible default on split).
+  - Every variant has an **optional name** (user-editable; when unnamed, displays dynamically as `[Parent Variant] - Variant [number]` when attached to a parent or `Variant [number]` for root segments).
+  - Variants can be assigned searchable **tags** (normalized and deduplicated case-insensitively) and filtered in the repertoire list by name, `#tag`, or clickable tag pills.
   - Every move in a variant can optionally carry a **description / comment**.
 
 #### GUI-Based Creation & Editing
 
 - Users create and edit variants directly on the GUI board:
   1. Choose side (White / Black) and starting position (default or custom setup).
-  2. Play moves step-by-step on the board to extend the line or create branches.
-  3. Edit names, move descriptions, or prune/modify branches at any point.
+  2. Play moves step-by-step on the board to record a new variant, **extend** an existing variant in-place, or **branch** from any interior ply.
+  3. **Truncate** an existing variant after any selected ply, edit names (or clear them to use fallback naming), edit move descriptions, add/remove tags, and **delete** variants with inline confirmation.
 - **FEN Position Search & Import:** Paste any 4-field or 6-field FEN to find all variants containing that position (matching start, interior, and leaf positions regardless of move clocks), jump directly to the matching ply in the Editor, or create a new variant / open Analysis from an unmatched FEN.
 
 #### Automatic Splitting & Multi-Parent DAG Behavior
@@ -89,10 +90,10 @@ The system should be structured into six loosely coupled modules communicating v
     - Child variant 1: `C -> D`
     - Child variant 2: `E -> G`
   - After `A -> B`, both `C` and `E` are valid continuations in the repertoire.
-- **Multiple Parents (Transpositions / Shared Subtrees):**
-  - A child variant may have **more than one parent variant** (e.g., two different move orders `Parent1` and `Parent2` that converge into the same child variant `Child`).
+- **Automatic Position-Based Linking & Multiple Parents (Transpositions):**
+  - Parent → child links are maintained **automatically solely by board position and side**: whenever two segments on the same side share `end_normalized_fen == start_normalized_fen`, they are linked as parent → child (multiple parents per child supported for transpositions); variants whose positions no longer match (for example after extending or truncating) are unlinked automatically.
   - The repertoire is therefore a **Directed Acyclic Graph (DAG)** of variant segments rather than a strict tree.
-  - **Cycle Prevention:** Adding an edge that would create a cycle in the variant graph must be prevented/rejected cleanly.
+  - **Cycle Prevention:** Cycle-creating edges are automatically excluded during link reconciliation.
   - **Path-Independent Identity:** `Child` maintains its own identity, name, move descriptions, and knowledge score regardless of which parent led into it.
 
 ---

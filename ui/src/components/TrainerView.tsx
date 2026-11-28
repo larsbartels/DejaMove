@@ -226,7 +226,7 @@ export function TrainerView({
                 <option value="">Choose variant...</option>
                 {segments.map((s) => (
                   <option key={s.id} value={s.id}>
-                    [{s.side === 'white' ? 'W' : 'B'}] {s.name} (
+                    [{s.side === 'white' ? 'W' : 'B'}] {s.displayName || s.name || 'Variant'} (
                     {Math.round(s.effectiveScore ?? s.stats.score)}%)
                   </option>
                 ))}

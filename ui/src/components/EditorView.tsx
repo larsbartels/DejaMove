@@ -5,6 +5,7 @@ import type {
   AddVariantResponse,
   BoardArrow,
   BoardStateResponse,
+  EditVariantResponse,
   EditorTargetLocation,
   FindByFenResponse,
   LegalMove,
@@ -27,6 +28,10 @@ function formatMatchLocation(m: PositionMatch): string {
   return m.moveSan ? `After ${m.moveSan}` : `Ply ${m.plyIndex}`;
 }
 
+function getVariantLabel(seg: VariantSegment): string {
+  return seg.displayName || seg.name || 'Variant';
+}
+
 interface EditorPly {
   fen: string;
   sideToMove: Side;
@@ -44,21 +49,27 @@ export function EditorView({
   onOpenFenInAnalysis,
 }: EditorViewProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [reloadTargetId, setReloadTargetId] = useState<string | null>(null);
   const [recordingMode, setRecordingMode] = useState(false);
   const [branchSource, setBranchSource] = useState<{
     parentId: string;
     afterPly: number;
   } | null>(null);
+  const [extendTargetId, setExtendTargetId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const [draftName, setDraftName] = useState('');
   const [draftSide, setDraftSide] = useState<Side>('white');
+  const [draftTags, setDraftTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState('');
   const [orientation, setOrientation] = useState<Side>('white');
   const [history, setHistory] = useState<EditorPly[]>([]);
   const [cursor, setCursor] = useState(0);
   const [showSetupModal, setShowSetupModal] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [linkParentId, setLinkParentId] = useState('');
+  const [variantSearch, setVariantSearch] = useState('');
+  const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
   const [fenQuery, setFenQuery] = useState('');
   const [fenSearchResult, setFenSearchResult] = useState<FindByFenResponse | null>(null);
   const [fenSearchError, setFenSearchError] = useState<string | null>(null);
@@ -67,6 +78,39 @@ export function EditorView({
     () => segments.find((s) => s.id === selectedId) ?? null,
     [segments, selectedId],
   );
+
+  const allTags = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const seg of segments) {
+      for (const tag of seg.tags ?? []) {
+        const key = tag.toLowerCase();
+        if (!seen.has(key)) {
+          seen.set(key, tag);
+        }
+      }
+    }
+    return Array.from(seen.values()).sort((a, b) => a.localeCompare(b));
+  }, [segments]);
+
+  const filteredSegments = useMemo(() => {
+    const q = variantSearch.trim().toLowerCase();
+    const tagFilter = activeTagFilter?.toLowerCase() ?? null;
+
+    return segments.filter((seg) => {
+      const segTags = seg.tags ?? [];
+      if (tagFilter && !segTags.some((t) => t.toLowerCase() === tagFilter)) {
+        return false;
+      }
+      if (!q) return true;
+      if (q.startsWith('#')) {
+        const tagQuery = q.slice(1).trim();
+        if (!tagQuery) return segTags.length > 0;
+        return segTags.some((t) => t.toLowerCase().includes(tagQuery));
+      }
+      const label = getVariantLabel(seg).toLowerCase();
+      return label.includes(q) || segTags.some((t) => t.toLowerCase().includes(q));
+    });
+  }, [segments, variantSearch, activeTagFilter]);
 
   const loadBoardAtFen = useCallback(async (fen?: string) => {
     const res = await window.dejamove.rpc<BoardStateResponse>(
@@ -88,44 +132,62 @@ export function EditorView({
     setCursor(0);
   }, []);
 
-  const loadSegmentIntoBoard = useCallback(async (seg: VariantSegment, targetCursor?: number) => {
-    const startState = await window.dejamove.rpc<BoardStateResponse>('board.state', {
-      fen: seg.startFen,
-    });
-    const plies: EditorPly[] = [
-      {
-        fen: startState.fen,
-        sideToMove: startState.sideToMove,
-        legalMoves: startState.legalMoves,
-        description: '',
-      },
-    ];
-    for (const m of seg.moves) {
-      const st = await window.dejamove.rpc<BoardStateResponse>('board.state', { fen: m.fen });
-      plies.push({
-        fen: m.fen,
-        sideToMove: st.sideToMove,
-        legalMoves: st.legalMoves,
-        uci: m.uci,
-        san: m.san,
-        description: m.description,
+  const loadSegmentIntoBoard = useCallback(
+    async (seg: VariantSegment, targetCursor?: number, keepStatus = false) => {
+      const startState = await window.dejamove.rpc<BoardStateResponse>('board.state', {
+        fen: seg.startFen,
       });
+      const plies: EditorPly[] = [
+        {
+          fen: startState.fen,
+          sideToMove: startState.sideToMove,
+          legalMoves: startState.legalMoves,
+          description: '',
+        },
+      ];
+      for (const m of seg.moves) {
+        const st = await window.dejamove.rpc<BoardStateResponse>('board.state', { fen: m.fen });
+        plies.push({
+          fen: m.fen,
+          sideToMove: st.sideToMove,
+          legalMoves: st.legalMoves,
+          uci: m.uci,
+          san: m.san,
+          description: m.description,
+        });
+      }
+      const nextCursor =
+        targetCursor !== undefined
+          ? Math.max(0, Math.min(targetCursor, plies.length - 1))
+          : plies.length - 1;
+      setHistory(plies);
+      setCursor(nextCursor);
+      setOrientation(seg.side);
+      setDraftName(seg.name);
+      setDraftSide(seg.side);
+      setDraftTags(seg.tags ?? []);
+      setTagInput('');
+      setRecordingMode(false);
+      setBranchSource(null);
+      setExtendTargetId(null);
+      setConfirmDeleteId(null);
+      setErrorMsg(null);
+      if (!keepStatus) {
+        setStatusMsg(null);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!reloadTargetId) return;
+    const seg = segments.find((s) => s.id === reloadTargetId);
+    if (seg) {
+      setSelectedId(seg.id);
+      setReloadTargetId(null);
+      void loadSegmentIntoBoard(seg, undefined, true);
     }
-    const nextCursor =
-      targetCursor !== undefined
-        ? Math.max(0, Math.min(targetCursor, plies.length - 1))
-        : plies.length - 1;
-    setHistory(plies);
-    setCursor(nextCursor);
-    setOrientation(seg.side);
-    setDraftName(seg.name);
-    setDraftSide(seg.side);
-    setRecordingMode(false);
-    setBranchSource(null);
-    setErrorMsg(null);
-    setStatusMsg(null);
-    setLinkParentId('');
-  }, []);
+  }, [reloadTargetId, segments, loadSegmentIntoBoard]);
 
   useEffect(() => {
     if (!targetLocation) return;
@@ -182,8 +244,12 @@ export function EditorView({
     setSelectedId(null);
     setRecordingMode(true);
     setBranchSource(null);
+    setExtendTargetId(null);
+    setConfirmDeleteId(null);
     setDraftName('');
     setDraftSide('white');
+    setDraftTags([]);
+    setTagInput('');
     setOrientation('white');
     setErrorMsg(null);
     setStatusMsg(null);
@@ -194,8 +260,12 @@ export function EditorView({
     setSelectedId(null);
     setRecordingMode(true);
     setBranchSource(null);
+    setExtendTargetId(null);
+    setConfirmDeleteId(null);
     setDraftName('');
     setDraftSide(side);
+    setDraftTags([]);
+    setTagInput('');
     setOrientation(side);
     setErrorMsg(null);
     setStatusMsg('Recording new variant from imported FEN. Play moves and click Save Variant.');
@@ -249,13 +319,54 @@ export function EditorView({
     if (!selectedSegment || cursor === 0) return;
     const branchFen = history[cursor].fen;
     setBranchSource({ parentId: selectedSegment.id, afterPly: cursor - 1 });
+    setExtendTargetId(null);
+    setConfirmDeleteId(null);
     setRecordingMode(true);
-    setDraftName(`${selectedSegment.name} (Branch)`);
+    setDraftName('');
     setDraftSide(selectedSegment.side);
+    setDraftTags(selectedSegment.tags ?? []);
+    setTagInput('');
     setOrientation(selectedSegment.side);
     setErrorMsg(null);
     setStatusMsg('Play the new branch moves on the board, then click Save Branch.');
     await loadBoardAtFen(branchFen);
+  };
+
+  const startExtendVariant = async () => {
+    if (!selectedSegment) return;
+    const endFen =
+      selectedSegment.moves.length > 0
+        ? selectedSegment.moves[selectedSegment.moves.length - 1].fen
+        : selectedSegment.startFen;
+    setExtendTargetId(selectedSegment.id);
+    setBranchSource(null);
+    setConfirmDeleteId(null);
+    setRecordingMode(true);
+    setDraftName(selectedSegment.name);
+    setDraftSide(selectedSegment.side);
+    setDraftTags(selectedSegment.tags ?? []);
+    setTagInput('');
+    setOrientation(selectedSegment.side);
+    setErrorMsg(null);
+    setStatusMsg('Play continuation moves on the board, then click Save Extension.');
+    await loadBoardAtFen(endFen);
+  };
+
+  const handleTruncateAtCursor = async () => {
+    if (!selectedSegment || cursor <= 0 || cursor >= history.length - 1) return;
+    const res = await window.dejamove.rpc<EditVariantResponse>('repertoire.truncateVariant', {
+      id: selectedSegment.id,
+      keepPlies: cursor,
+    });
+    if (!res.ok) {
+      setErrorMsg(res.error ?? 'Failed to truncate variant.');
+      return;
+    }
+    setConfirmDeleteId(null);
+    setErrorMsg(null);
+    setStatusMsg(`Truncated variant after move ${cursor}.`);
+    setReloadTargetId(res.segmentId);
+    await onRefresh();
   };
 
   const handleBoardMove = async (uci: string) => {
@@ -270,10 +381,15 @@ export function EditorView({
       });
       if (!res.valid) return;
 
+      setExtendTargetId(null);
+      setConfirmDeleteId(null);
+      setDraftTags(selectedSegment.tags ?? []);
+      setTagInput('');
+
       if (cursor === 0) {
         setRecordingMode(true);
         setBranchSource(null);
-        setDraftName(`${selectedSegment.name} (Alt)`);
+        setDraftName('');
         setDraftSide(selectedSegment.side);
         setHistory([
           current,
@@ -291,7 +407,7 @@ export function EditorView({
       } else {
         setBranchSource({ parentId: selectedSegment.id, afterPly: cursor - 1 });
         setRecordingMode(true);
-        setDraftName(`${selectedSegment.name} (Branch)`);
+        setDraftName('');
         setDraftSide(selectedSegment.side);
         setHistory([
           { ...current, uci: undefined, san: undefined, description: '' },
@@ -338,18 +454,38 @@ export function EditorView({
       description: h.description,
     }));
 
+    if (extendTargetId) {
+      const res = await window.dejamove.rpc<EditVariantResponse>('repertoire.extendVariant', {
+        id: extendTargetId,
+        moves,
+      });
+      if (!res.ok) {
+        setErrorMsg(res.error ?? 'Failed to extend variant.');
+        return;
+      }
+      setRecordingMode(false);
+      setExtendTargetId(null);
+      setErrorMsg(null);
+      setStatusMsg('Variant extended and links updated automatically.');
+      setReloadTargetId(res.segmentId);
+      await onRefresh();
+      return;
+    }
+
     const res = branchSource
       ? await window.dejamove.rpc<AddVariantResponse>('repertoire.branchFrom', {
           parentId: branchSource.parentId,
           afterPly: branchSource.afterPly,
-          name: draftName.trim() || 'New Branch',
+          name: draftName.trim(),
           moves,
+          tags: draftTags,
         })
       : await window.dejamove.rpc<AddVariantResponse>('repertoire.addVariant', {
-          name: draftName.trim() || 'New Variant',
+          name: draftName.trim(),
           side: draftSide,
           startFen: history[0].fen,
           moves,
+          tags: draftTags,
         });
 
     if (!res.ok) {
@@ -359,23 +495,54 @@ export function EditorView({
 
     setRecordingMode(false);
     setBranchSource(null);
-    await onRefresh();
-    setSelectedId(res.segmentId);
+    setErrorMsg(null);
     setStatusMsg(
       res.splitOccurred
         ? 'Saved and automatically split existing variant at the branch point.'
         : 'Variant saved.',
     );
+    setReloadTargetId(res.segmentId);
+    await onRefresh();
   };
 
   const handleRename = async () => {
-    if (!selectedSegment || !draftName.trim()) return;
+    if (!selectedSegment) return;
+    const trimmed = draftName.trim();
     await window.dejamove.rpc('repertoire.renameVariant', {
       id: selectedSegment.id,
-      name: draftName.trim(),
+      name: trimmed,
     });
     await onRefresh();
-    setStatusMsg('Renamed.');
+    setStatusMsg(trimmed ? 'Renamed.' : 'Cleared explicit name (using default display name).');
+  };
+
+  const persistTags = async (nextTags: string[]) => {
+    setDraftTags(nextTags);
+    if (!recordingMode && selectedSegment) {
+      const res = await window.dejamove.rpc<{ ok: boolean }>('repertoire.setTags', {
+        id: selectedSegment.id,
+        tags: nextTags,
+      });
+      if (res.ok) {
+        await onRefresh();
+        setStatusMsg('Tags updated.');
+      }
+    }
+  };
+
+  const handleAddTag = async () => {
+    const trimmed = tagInput.trim().replace(/^,+|,+$/g, '');
+    if (!trimmed) return;
+    if (draftTags.some((t) => t.toLowerCase() === trimmed.toLowerCase())) {
+      setTagInput('');
+      return;
+    }
+    setTagInput('');
+    await persistTags([...draftTags, trimmed]);
+  };
+
+  const handleRemoveTag = async (tagToRemove: string) => {
+    await persistTags(draftTags.filter((t) => t !== tagToRemove));
   };
 
   const handleDescriptionChange = (text: string) => {
@@ -395,41 +562,13 @@ export function EditorView({
     setStatusMsg('Description saved.');
   };
 
-  const handleDelete = async () => {
+  const handleConfirmDelete = async () => {
     if (!selectedSegment) return;
     await window.dejamove.rpc('repertoire.removeVariant', { id: selectedSegment.id });
+    setConfirmDeleteId(null);
     setSelectedId(null);
     await onRefresh();
   };
-
-  const handleLinkParent = async () => {
-    if (!selectedSegment || !linkParentId) return;
-    const res = await window.dejamove.rpc<{ ok: boolean; error?: string }>(
-      'repertoire.linkParentChild',
-      {
-        parentId: linkParentId,
-        childId: selectedSegment.id,
-      },
-    );
-    if (!res.ok) {
-      setErrorMsg(res.error ?? 'Could not link parent.');
-      return;
-    }
-    setLinkParentId('');
-    await onRefresh();
-    setStatusMsg('Linked transposition parent.');
-  };
-
-  const compatibleParents = useMemo(() => {
-    if (!selectedSegment) return [];
-    return segments.filter((s) => {
-      if (s.id === selectedSegment.id) return false;
-      if (selectedSegment.parentIds.includes(s.id)) return false;
-      const endNorm =
-        s.moves.length > 0 ? s.moves[s.moves.length - 1].normalizedFen : s.startNormalizedFen;
-      return endNorm === selectedSegment.startNormalizedFen;
-    });
-  }, [segments, selectedSegment]);
 
   const current = history[cursor];
   const lastMove: [string, string] | undefined =
@@ -551,11 +690,52 @@ export function EditorView({
             )}
           </div>
 
+          <div className="variant-search-box">
+            <div className="fen-search-form">
+              <input
+                type="text"
+                value={variantSearch}
+                onChange={(e) => setVariantSearch(e.target.value)}
+                placeholder="Search by name or #tag..."
+              />
+              {(variantSearch || activeTagFilter) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVariantSearch('');
+                    setActiveTagFilter(null);
+                  }}
+                >
+                  Reset
+                </button>
+              )}
+            </div>
+            {allTags.length > 0 && (
+              <div className="tag-filter-bar">
+                {allTags.map((tag) => {
+                  const active = activeTagFilter?.toLowerCase() === tag.toLowerCase();
+                  return (
+                    <button
+                      key={tag}
+                      type="button"
+                      className={`tag-filter-pill ${active ? 'active' : ''}`}
+                      onClick={() => setActiveTagFilter(active ? null : tag)}
+                    >
+                      #{tag}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           <div className="variant-list">
             {segments.length === 0 ? (
               <p className="muted">No variants yet. Click + New to create one.</p>
+            ) : filteredSegments.length === 0 ? (
+              <p className="muted">No variants match the current search or tag filter.</p>
             ) : (
-              segments.map((seg) => {
+              filteredSegments.map((seg) => {
                 const eff = Math.round(seg.effectiveScore ?? seg.stats.score);
                 const isSelected = !recordingMode && selectedSegment?.id === seg.id;
                 return (
@@ -572,7 +752,7 @@ export function EditorView({
                       <span className={`side-badge ${seg.side}`}>
                         {seg.side === 'white' ? 'W' : 'B'}
                       </span>
-                      <span className="variant-name">{seg.name}</span>
+                      <span className="variant-name">{getVariantLabel(seg)}</span>
                       <span className="score-badge">{eff}%</span>
                     </div>
                     <div className="variant-item-sub">
@@ -586,6 +766,15 @@ export function EditorView({
                       )}
                       {seg.childIds.length > 0 && <span>{seg.childIds.length} branches</span>}
                     </div>
+                    {(seg.tags?.length ?? 0) > 0 && (
+                      <div className="variant-tags-row">
+                        {seg.tags!.map((tag) => (
+                          <span key={tag} className="tag-pill">
+                            #{tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </button>
                 );
               })
@@ -615,10 +804,14 @@ export function EditorView({
           <div className="panel-header-row">
             <h2>
               {recordingMode
-                ? branchSource
-                  ? 'New Branch'
-                  : 'New Variant'
-                : (selectedSegment?.name ?? 'Editor')}
+                ? extendTargetId
+                  ? `Extend: ${selectedSegment ? getVariantLabel(selectedSegment) : 'Variant'}`
+                  : branchSource
+                    ? 'New Branch'
+                    : 'New Variant'
+                : selectedSegment
+                  ? getVariantLabel(selectedSegment)
+                  : 'Editor'}
             </h2>
             <button
               type="button"
@@ -631,21 +824,75 @@ export function EditorView({
           {errorMsg && <div className="error-banner">{errorMsg}</div>}
           {statusMsg && <div className="info-banner">{statusMsg}</div>}
 
-          <div className="form-group">
-            <label>
-              Name
-              <input
-                type="text"
-                value={draftName}
-                onChange={(e) => setDraftName(e.target.value)}
-                placeholder="Variant name..."
-              />
-            </label>
-          </div>
+          {!extendTargetId && (
+            <>
+              <div className="form-group">
+                <label>
+                  Name
+                  <input
+                    type="text"
+                    value={draftName}
+                    onChange={(e) => setDraftName(e.target.value)}
+                    placeholder={
+                      selectedSegment && !recordingMode && !selectedSegment.name
+                        ? getVariantLabel(selectedSegment)
+                        : 'Optional variant name...'
+                    }
+                  />
+                </label>
+              </div>
+
+              {(recordingMode || selectedSegment) && (
+                <div className="form-group tag-editor">
+                  <label>
+                    Tags
+                    <div className="tag-input-row">
+                      <input
+                        type="text"
+                        value={tagInput}
+                        onChange={(e) => setTagInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ',') {
+                            e.preventDefault();
+                            void handleAddTag();
+                          }
+                        }}
+                        placeholder="Add tag (e.g. sharp, endgame)..."
+                      />
+                      <button
+                        type="button"
+                        disabled={!tagInput.trim()}
+                        onClick={() => void handleAddTag()}
+                      >
+                        Add
+                      </button>
+                    </div>
+                  </label>
+                  {draftTags.length > 0 && (
+                    <div className="tag-list">
+                      {draftTags.map((tag) => (
+                        <span key={tag} className="tag-chip">
+                          #{tag}
+                          <button
+                            type="button"
+                            className="tag-chip-remove"
+                            aria-label={`Remove tag ${tag}`}
+                            onClick={() => void handleRemoveTag(tag)}
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
 
           {recordingMode ? (
             <>
-              {!branchSource && (
+              {!branchSource && !extendTargetId && (
                 <div className="form-row">
                   <label>
                     Side
@@ -672,13 +919,18 @@ export function EditorView({
                   className="primary"
                   onClick={() => void saveRecordedVariant()}
                 >
-                  {branchSource ? 'Save Branch' : 'Save Variant'}
+                  {extendTargetId
+                    ? 'Save Extension'
+                    : branchSource
+                      ? 'Save Branch'
+                      : 'Save Variant'}
                 </button>
                 <button
                   type="button"
                   onClick={() => {
                     setRecordingMode(false);
                     setBranchSource(null);
+                    setExtendTargetId(null);
                     if (selectedSegment) void loadSegmentIntoBoard(selectedSegment);
                   }}
                 >
@@ -700,15 +952,74 @@ export function EditorView({
                   >
                     Train This
                   </button>
-                  <button type="button" className="danger" onClick={() => void handleDelete()}>
+                  <button
+                    type="button"
+                    className="danger"
+                    onClick={() => setConfirmDeleteId(selectedSegment.id)}
+                  >
                     Delete
                   </button>
                 </div>
 
-                {cursor > 0 && (
-                  <button type="button" onClick={() => void startBranchFromCursor()}>
-                    Branch From Move {cursor}
+                {confirmDeleteId === selectedSegment.id && (
+                  <div className="confirm-delete-box">
+                    <p>
+                      Delete &ldquo;{getVariantLabel(selectedSegment)}&rdquo;? Parent and child
+                      variants will remain intact.
+                    </p>
+                    <div className="form-row">
+                      <button
+                        type="button"
+                        className="danger"
+                        onClick={() => void handleConfirmDelete()}
+                      >
+                        Confirm Delete
+                      </button>
+                      <button type="button" onClick={() => setConfirmDeleteId(null)}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="form-row">
+                  <button type="button" onClick={() => void startExtendVariant()}>
+                    Extend Variant
                   </button>
+                  {cursor > 0 && (
+                    <button type="button" onClick={() => void startBranchFromCursor()}>
+                      Branch From Move {cursor}
+                    </button>
+                  )}
+                </div>
+
+                {cursor > 0 && cursor < history.length - 1 && (
+                  <button type="button" onClick={() => void handleTruncateAtCursor()}>
+                    Truncate After Move {cursor}
+                  </button>
+                )}
+
+                {selectedSegment.parentIds.length > 0 && (
+                  <div className="links-row">
+                    <span className="muted">Parents:</span>
+                    {selectedSegment.parentIds.map((pid) => {
+                      const parent = segments.find((s) => s.id === pid);
+                      if (!parent) return null;
+                      return (
+                        <button
+                          key={pid}
+                          type="button"
+                          className="link-chip"
+                          onClick={() => {
+                            setSelectedId(pid);
+                            void loadSegmentIntoBoard(parent);
+                          }}
+                        >
+                          {getVariantLabel(parent)}
+                        </button>
+                      );
+                    })}
+                  </div>
                 )}
 
                 {selectedSegment.childIds.length > 0 && (
@@ -727,30 +1038,10 @@ export function EditorView({
                             void loadSegmentIntoBoard(child);
                           }}
                         >
-                          {child.name}
+                          {getVariantLabel(child)}
                         </button>
                       );
                     })}
-                  </div>
-                )}
-
-                {compatibleParents.length > 0 && (
-                  <div className="form-row">
-                    <select value={linkParentId} onChange={(e) => setLinkParentId(e.target.value)}>
-                      <option value="">Link transposition parent...</option>
-                      {compatibleParents.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      disabled={!linkParentId}
-                      onClick={() => void handleLinkParent()}
-                    >
-                      Link
-                    </button>
                   </div>
                 )}
               </div>

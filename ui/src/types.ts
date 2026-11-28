@@ -48,12 +48,14 @@ export interface VariantStats {
 export interface VariantSegment {
   id: string;
   name: string;
+  displayName?: string;
   side: Side;
   startFen: string;
   startNormalizedFen: string;
   moves: MoveStep[];
   parentIds: string[];
   childIds: string[];
+  tags?: string[];
   stats: VariantStats;
   effectiveScore?: number;
 }
@@ -70,6 +72,12 @@ export interface AddVariantResponse {
   segmentId: string;
   splitOccurred: boolean;
   splitParentId: string;
+}
+
+export interface EditVariantResponse {
+  ok: boolean;
+  error?: string;
+  segmentId: string;
 }
 
 export interface PlayedMoveRecord {

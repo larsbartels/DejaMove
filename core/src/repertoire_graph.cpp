@@ -1,12 +1,50 @@
 #include "dejamove/repertoire_graph.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <queue>
 #include <unordered_set>
 
 namespace dejamove {
 
 namespace {
+
+std::string trim_copy(std::string_view sv) {
+    std::size_t first = 0;
+    while (first < sv.size() && std::isspace(static_cast<unsigned char>(sv[first]))) {
+        ++first;
+    }
+    std::size_t last = sv.size();
+    while (last > first && std::isspace(static_cast<unsigned char>(sv[last - 1]))) {
+        --last;
+    }
+    return std::string(sv.substr(first, last - first));
+}
+
+std::string to_lower_copy(std::string_view sv) {
+    std::string out(sv);
+    for (char& ch : out) {
+        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    }
+    return out;
+}
+
+std::vector<std::string> normalize_tags(const std::vector<std::string>& raw_tags) {
+    std::vector<std::string> result;
+    std::unordered_set<std::string> seen;
+    result.reserve(raw_tags.size());
+    for (const auto& raw : raw_tags) {
+        std::string trimmed = trim_copy(raw);
+        if (trimmed.empty()) {
+            continue;
+        }
+        std::string key = to_lower_copy(trimmed);
+        if (seen.insert(std::move(key)).second) {
+            result.push_back(std::move(trimmed));
+        }
+    }
+    return result;
+}
 
 std::optional<std::vector<MoveStep>> build_move_steps(std::string_view start_fen,
                                                       const std::vector<MoveInput>& inputs,
@@ -94,7 +132,8 @@ bool RepertoireGraph::has_path(std::string_view from_id, std::string_view target
 
 AddVariantResult RepertoireGraph::add_variant(std::string name, Side side,
                                               std::string_view start_fen,
-                                              const std::vector<MoveInput>& moves) {
+                                              const std::vector<MoveInput>& moves,
+                                              const std::vector<std::string>& tags) {
     std::string err;
     auto steps_opt = build_move_steps(start_fen, moves, err);
     if (!steps_opt.has_value()) {
@@ -148,7 +187,7 @@ AddVariantResult RepertoireGraph::add_variant(std::string name, Side side,
                 for (std::size_t k = step_idx; k < steps.size(); ++k) {
                     remaining.push_back(moves[k]);
                 }
-                return branch_from(cur_seg_id, cur_ply - 1, std::move(name), remaining);
+                return branch_from(cur_seg_id, cur_ply - 1, std::move(name), remaining, tags);
             }
 
             // Reached the end of `cur_seg_id`; check if a child continues with `steps[step_idx]`.
@@ -172,7 +211,7 @@ AddVariantResult RepertoireGraph::add_variant(std::string name, Side side,
             for (std::size_t k = step_idx; k < steps.size(); ++k) {
                 remaining.push_back(moves[k]);
             }
-            return branch_from(cur_seg_id, seg.moves.size() - 1, std::move(name), remaining);
+            return branch_from(cur_seg_id, seg.moves.size() - 1, std::move(name), remaining, tags);
         }
 
         // All moves already existed in the DAG.
@@ -187,19 +226,22 @@ AddVariantResult RepertoireGraph::add_variant(std::string name, Side side,
     const std::string id = generate_id();
     VariantSegment seg;
     seg.id = id;
-    seg.name = name.empty() ? ("Variant " + id) : std::move(name);
+    seg.name = trim_copy(name);
     seg.side = side;
     seg.start_fen = std::string(start_fen);
     seg.start_normalized_fen = norm_start;
     seg.moves = steps;
+    seg.tags = normalize_tags(tags);
 
     segments_.emplace(id, std::move(seg));
+    reconcile_links();
     return AddVariantResult{.ok = true, .segment_id = id, .split_occurred = false};
 }
 
 AddVariantResult RepertoireGraph::branch_from(std::string_view parent_segment_id,
                                               std::size_t after_ply, std::string name,
-                                              const std::vector<MoveInput>& moves) {
+                                              const std::vector<MoveInput>& moves,
+                                              const std::vector<std::string>& tags) {
     auto parent_it = segments_.find(std::string(parent_segment_id));
     if (parent_it == segments_.end()) {
         return AddVariantResult{.ok = false, .error = "Parent segment not found."};
@@ -226,7 +268,7 @@ AddVariantResult RepertoireGraph::branch_from(std::string_view parent_segment_id
         const std::string suffix_id = generate_id();
         VariantSegment suffix;
         suffix.id = suffix_id;
-        suffix.name = parent.name + " (cont.)";
+        suffix.name = parent.name.empty() ? "" : (parent.name + " (cont.)");
         suffix.side = parent.side;
         suffix.start_fen = branch_start_fen;
         suffix.start_normalized_fen = branch_start_norm_fen;
@@ -234,6 +276,7 @@ AddVariantResult RepertoireGraph::branch_from(std::string_view parent_segment_id
                             std::make_move_iterator(parent.moves.end()));
         suffix.parent_ids = {parent.id};
         suffix.child_ids = std::move(parent.child_ids);
+        suffix.tags = parent.tags;
 
         // Re-point existing children from `parent.id` to `suffix_id`.
         for (const auto& cid : suffix.child_ids) {
@@ -253,16 +296,18 @@ AddVariantResult RepertoireGraph::branch_from(std::string_view parent_segment_id
     const std::string branch_id = generate_id();
     VariantSegment branch;
     branch.id = branch_id;
-    branch.name = name.empty() ? ("Variant " + branch_id) : std::move(name);
+    branch.name = trim_copy(name);
     branch.side = parent_ref.side;
     branch.start_fen = branch_start_fen;
     branch.start_normalized_fen = branch_start_norm_fen;
     branch.moves = std::move(*steps_opt);
     branch.parent_ids = {parent_ref.id};
+    branch.tags = normalize_tags(tags);
 
     add_unique(parent_ref.child_ids, branch_id);
     const std::string parent_id_copy = parent_ref.id;
     segments_.emplace(branch_id, std::move(branch));
+    reconcile_links();
 
     return AddVariantResult{
         .ok = true,
@@ -272,12 +317,100 @@ AddVariantResult RepertoireGraph::branch_from(std::string_view parent_segment_id
     };
 }
 
+EditVariantResult RepertoireGraph::extend_variant(std::string_view segment_id,
+                                                  const std::vector<MoveInput>& moves) {
+    auto it = segments_.find(std::string(segment_id));
+    if (it == segments_.end()) {
+        return EditVariantResult{.ok = false, .error = "Variant segment not found."};
+    }
+
+    std::string err;
+    auto steps_opt = build_move_steps(end_fen(it->second), moves, err);
+    if (!steps_opt.has_value()) {
+        return EditVariantResult{.ok = false, .error = err};
+    }
+
+    it->second.moves.insert(it->second.moves.end(), std::make_move_iterator(steps_opt->begin()),
+                            std::make_move_iterator(steps_opt->end()));
+    reconcile_links();
+
+    return EditVariantResult{.ok = true, .segment_id = it->second.id};
+}
+
+EditVariantResult RepertoireGraph::truncate_variant(std::string_view segment_id,
+                                                    std::size_t keep_plies) {
+    auto it = segments_.find(std::string(segment_id));
+    if (it == segments_.end()) {
+        return EditVariantResult{.ok = false, .error = "Variant segment not found."};
+    }
+    if (keep_plies == 0) {
+        return EditVariantResult{.ok = false, .error = "Variant must keep at least one move."};
+    }
+    if (keep_plies >= it->second.moves.size()) {
+        return EditVariantResult{
+            .ok = false,
+            .error = "Truncate point must be strictly before the end of the variant.",
+        };
+    }
+
+    it->second.moves.resize(keep_plies);
+    reconcile_links();
+
+    return EditVariantResult{.ok = true, .segment_id = it->second.id};
+}
+
+void RepertoireGraph::reconcile_links() {
+    std::vector<std::string> sorted_ids;
+    sorted_ids.reserve(segments_.size());
+    std::unordered_map<std::string, std::vector<std::string>> by_start_fen;
+
+    for (const VariantSegment* seg : all_segments()) {
+        sorted_ids.push_back(seg->id);
+        by_start_fen[seg->start_normalized_fen].push_back(seg->id);
+    }
+
+    for (const auto& id : sorted_ids) {
+        auto& seg = segments_.at(id);
+        seg.parent_ids.clear();
+        seg.child_ids.clear();
+    }
+
+    for (const auto& parent_id : sorted_ids) {
+        const auto& parent = segments_.at(parent_id);
+        const std::string parent_end = end_normalized_fen(parent);
+        const auto children_it = by_start_fen.find(parent_end);
+        if (children_it == by_start_fen.end()) {
+            continue;
+        }
+
+        for (const auto& child_id : children_it->second) {
+            if (parent_id == child_id) {
+                continue;
+            }
+            auto& child = segments_.at(child_id);
+            if (parent.side != child.side) {
+                continue;
+            }
+            if (has_path(child_id, parent_id)) {
+                continue;
+            }
+            add_unique(segments_.at(parent_id).child_ids, child_id);
+            add_unique(child.parent_ids, parent_id);
+        }
+    }
+}
+
 LinkResult RepertoireGraph::link_parent_child(std::string_view parent_id,
                                               std::string_view child_id) {
     auto pit = segments_.find(std::string(parent_id));
     auto cit = segments_.find(std::string(child_id));
     if (pit == segments_.end() || cit == segments_.end()) {
         return LinkResult{.ok = false, .error = "Parent or child segment not found."};
+    }
+
+    if (pit->second.side != cit->second.side) {
+        return LinkResult{.ok = false,
+                          .error = "Parent and child segments must belong to the same side."};
     }
 
     if (parent_id == child_id || has_path(child_id, parent_id)) {
@@ -299,10 +432,19 @@ LinkResult RepertoireGraph::link_parent_child(std::string_view parent_id,
 
 bool RepertoireGraph::rename_variant(std::string_view segment_id, std::string new_name) {
     auto* seg = find_segment_mut(segment_id);
-    if (!seg || new_name.empty()) {
+    if (!seg) {
         return false;
     }
-    seg->name = std::move(new_name);
+    seg->name = trim_copy(new_name);
+    return true;
+}
+
+bool RepertoireGraph::set_tags(std::string_view segment_id, const std::vector<std::string>& tags) {
+    auto* seg = find_segment_mut(segment_id);
+    if (!seg) {
+        return false;
+    }
+    seg->tags = normalize_tags(tags);
     return true;
 }
 
@@ -322,18 +464,8 @@ bool RepertoireGraph::remove_variant(std::string_view segment_id) {
         return false;
     }
 
-    for (const auto& pid : it->second.parent_ids) {
-        if (auto pit = segments_.find(pid); pit != segments_.end()) {
-            remove_value(pit->second.child_ids, segment_id);
-        }
-    }
-    for (const auto& cid : it->second.child_ids) {
-        if (auto cit = segments_.find(cid); cit != segments_.end()) {
-            remove_value(cit->second.parent_ids, segment_id);
-        }
-    }
-
     segments_.erase(it);
+    reconcile_links();
     return true;
 }
 
@@ -358,26 +490,99 @@ std::vector<const VariantSegment*> RepertoireGraph::all_segments() const {
     return out;
 }
 
+std::vector<const VariantSegment*> RepertoireGraph::find_by_tag(std::string_view tag_query) const {
+    const std::string query = to_lower_copy(trim_copy(tag_query));
+    if (query.empty()) {
+        return {};
+    }
+
+    std::vector<const VariantSegment*> matches;
+    for (const VariantSegment* seg : all_segments()) {
+        const bool has_match =
+            std::any_of(seg->tags.begin(), seg->tags.end(), [&](const std::string& tag) {
+                return to_lower_copy(tag).find(query) != std::string::npos;
+            });
+        if (has_match) {
+            matches.push_back(seg);
+        }
+    }
+    return matches;
+}
+
+std::string RepertoireGraph::display_name(std::string_view segment_id) const {
+    std::unordered_set<std::string> visited;
+    return display_name_impl(segment_id, visited);
+}
+
+std::string RepertoireGraph::display_name_impl(std::string_view segment_id,
+                                               std::unordered_set<std::string>& visited) const {
+    const auto* seg = find_segment(segment_id);
+    if (!seg) {
+        return "";
+    }
+    if (!seg->name.empty()) {
+        return seg->name;
+    }
+    if (!visited.insert(seg->id).second) {
+        return "Variant";
+    }
+
+    if (!seg->parent_ids.empty()) {
+        const std::string& parent_id = seg->parent_ids.front();
+        const auto* parent = find_segment(parent_id);
+        std::size_t ordinal = 1;
+        if (parent) {
+            std::size_t count = 0;
+            for (const auto& cid : parent->child_ids) {
+                const auto* sibling = find_segment(cid);
+                if (sibling && sibling->name.empty()) {
+                    ++count;
+                    if (cid == seg->id) {
+                        ordinal = count;
+                        break;
+                    }
+                }
+            }
+        }
+        const std::string parent_label = display_name_impl(parent_id, visited);
+        return parent_label + " - Variant " + std::to_string(ordinal);
+    }
+
+    std::size_t ordinal = 1;
+    std::size_t count = 0;
+    for (const VariantSegment* root : all_segments()) {
+        if (root->parent_ids.empty() && root->name.empty()) {
+            ++count;
+            if (root->id == seg->id) {
+                ordinal = count;
+                break;
+            }
+        }
+    }
+    return "Variant " + std::to_string(ordinal);
+}
+
 std::vector<Continuation> RepertoireGraph::continuations_at(std::string_view normalized_fen) const {
     std::vector<Continuation> result;
     std::unordered_map<std::string, std::size_t> uci_to_index;
 
     auto record_continuation = [&](const VariantSegment& seg, std::size_t ply_index) {
         const auto& step = seg.moves[ply_index];
+        const std::string label = display_name(seg.id);
         auto [it, inserted] = uci_to_index.emplace(step.uci, result.size());
         if (inserted) {
             result.push_back(Continuation{
                 .uci = step.uci,
                 .san = step.san,
                 .segment_id = seg.id,
-                .segment_name = seg.name,
-                .variant_names = {seg.name},
+                .segment_name = label,
+                .variant_names = {label},
                 .ply_index = ply_index,
                 .description = step.description,
             });
         } else {
             auto& existing = result[it->second];
-            add_unique(existing.variant_names, seg.name);
+            add_unique(existing.variant_names, label);
             if (existing.description.empty() && !step.description.empty()) {
                 existing.description = step.description;
             }
@@ -404,10 +609,11 @@ std::vector<PositionMatch>
 RepertoireGraph::find_positions_by_fen(std::string_view normalized_fen) const {
     std::vector<PositionMatch> matches;
     for (const VariantSegment* seg : all_segments()) {
+        const std::string label = display_name(seg->id);
         if (seg->start_normalized_fen == normalized_fen) {
             matches.push_back(PositionMatch{
                 .segment_id = seg->id,
-                .segment_name = seg->name,
+                .segment_name = label,
                 .side = seg->side,
                 .ply_index = 0,
                 .match_kind = PositionMatchKind::Start,
@@ -420,7 +626,7 @@ RepertoireGraph::find_positions_by_fen(std::string_view normalized_fen) const {
                 const bool is_end = (i + 1 == seg->moves.size());
                 matches.push_back(PositionMatch{
                     .segment_id = seg->id,
-                    .segment_name = seg->name,
+                    .segment_name = label,
                     .side = seg->side,
                     .ply_index = i + 1,
                     .match_kind = is_end ? PositionMatchKind::End : PositionMatchKind::Interior,

@@ -52,12 +52,14 @@ nlohmann::json serialize_repertoire(const RepertoireGraph& graph) {
         segments_json.push_back(nlohmann::json{
             {"id", seg->id},
             {"name", seg->name},
+            {"displayName", graph.display_name(seg->id)},
             {"side", side_to_string(seg->side)},
             {"startFen", seg->start_fen},
             {"startNormalizedFen", seg->start_normalized_fen},
             {"moves", std::move(moves_json)},
             {"parentIds", seg->parent_ids},
             {"childIds", seg->child_ids},
+            {"tags", seg->tags},
             {"stats", serialize_stats(seg->stats)},
         });
     }
@@ -117,6 +119,9 @@ bool deserialize_repertoire(const nlohmann::json& j, RepertoireGraph& out, std::
         if (sj.contains("childIds") && sj["childIds"].is_array()) {
             seg.child_ids = sj["childIds"].get<std::vector<std::string>>();
         }
+        if (sj.contains("tags") && sj["tags"].is_array()) {
+            seg.tags = sj["tags"].get<std::vector<std::string>>();
+        }
         if (sj.contains("stats") && sj["stats"].is_object()) {
             const auto& st = sj["stats"];
             seg.stats.score = st.value("score", 0.0);
@@ -128,6 +133,7 @@ bool deserialize_repertoire(const nlohmann::json& j, RepertoireGraph& out, std::
         temp.insert_raw_segment(std::move(seg));
     }
 
+    temp.reconcile_links();
     out = std::move(temp);
     return true;
 }

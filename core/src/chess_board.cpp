@@ -17,6 +17,22 @@ std::string_view trim_ascii(std::string_view sv) {
     return sv.substr(start, end - start + 1);
 }
 
+bool is_valid_uci_syntax(std::string_view uci) {
+    if (uci.size() != 4 && uci.size() != 5) {
+        return false;
+    }
+    const bool coords_ok = (uci[0] >= 'a' && uci[0] <= 'h') && (uci[1] >= '1' && uci[1] <= '8') &&
+                           (uci[2] >= 'a' && uci[2] <= 'h') && (uci[3] >= '1' && uci[3] <= '8');
+    if (!coords_ok) {
+        return false;
+    }
+    if (uci.size() == 5) {
+        const char p = uci[4];
+        return p == 'n' || p == 'b' || p == 'r' || p == 'q';
+    }
+    return true;
+}
+
 bool has_four_fen_fields(std::string_view fen) {
     std::istringstream iss{std::string(fen)};
     std::string f1;
@@ -133,6 +149,9 @@ GameStatus ChessBoard::status() const {
 }
 
 bool ChessBoard::is_legal_uci(std::string_view uci) const {
+    if (!is_valid_uci_syntax(uci)) {
+        return false;
+    }
     const chess::Move move = chess::uci::uciToMove(impl_->board, uci);
     if (move == chess::Move::NO_MOVE) {
         return false;
@@ -154,6 +173,9 @@ std::vector<MoveInfo> ChessBoard::legal_moves() const {
 }
 
 std::optional<MoveResult> ChessBoard::make_uci_move(std::string_view uci) {
+    if (!is_valid_uci_syntax(uci)) {
+        return std::nullopt;
+    }
     const chess::Move move = chess::uci::uciToMove(impl_->board, uci);
     if (move == chess::Move::NO_MOVE) {
         return std::nullopt;
@@ -179,6 +201,9 @@ std::optional<MoveResult> ChessBoard::make_uci_move(std::string_view uci) {
 }
 
 std::optional<MoveResult> ChessBoard::make_san_move(std::string_view san) {
+    if (san.empty() || san.back() == '=') {
+        return std::nullopt;
+    }
     chess::Move move = chess::Move::NO_MOVE;
     try {
         move = chess::uci::parseSan(impl_->board, san);

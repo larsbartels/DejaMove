@@ -217,3 +217,179 @@ TEST_CASE("continuations_at reports owning variant names including shared contin
     REQUIRE(contains_id(conts[0].variant_names, "QGD via d4"));
     REQUIRE(contains_id(conts[0].variant_names, "QGD via c4"));
 }
+
+TEST_CASE("Matching end and start positions link automatically without manual linking",
+          "[repertoire_graph]") {
+    RepertoireGraph graph;
+    const std::string initial_fen = ChessBoard().fen();
+
+    // Reach QGD position first so we can define the child segment before its parents.
+    ChessBoard qgd_board;
+    for (const char* san : {"d4", "d5", "c4", "e6"}) {
+        REQUIRE(qgd_board.make_san_move(san).has_value());
+    }
+
+    const auto child =
+        graph.add_variant("QGD Continuation", Side::White, qgd_board.fen(), {{"Nc3"}, {"Nf6"}});
+    REQUIRE(child.ok);
+
+    // Now add two transposing parents; links should be established automatically regardless of
+    // order.
+    const auto p1 =
+        graph.add_variant("QGD d4", Side::White, initial_fen, {{"d4"}, {"d5"}, {"c4"}, {"e6"}});
+    const auto p2 =
+        graph.add_variant("QGD c4", Side::White, initial_fen, {{"c4"}, {"e6"}, {"d4"}, {"d5"}});
+    // Different-side segment ending at the same FEN must NOT auto-link across sides.
+    const auto black_line =
+        graph.add_variant("QGD Black", Side::Black, initial_fen, {{"d4"}, {"d5"}, {"c4"}, {"e6"}});
+    REQUIRE(p1.ok);
+    REQUIRE(p2.ok);
+    REQUIRE(black_line.ok);
+
+    const auto* child_seg = graph.find_segment(child.segment_id);
+    REQUIRE(child_seg != nullptr);
+    REQUIRE(child_seg->parent_ids.size() == 2);
+    REQUIRE(contains_id(child_seg->parent_ids, p1.segment_id));
+    REQUIRE(contains_id(child_seg->parent_ids, p2.segment_id));
+    REQUIRE_FALSE(contains_id(child_seg->parent_ids, black_line.segment_id));
+}
+
+TEST_CASE("Extending and truncating variants update moves and automatically re-link children",
+          "[repertoire_graph]") {
+    RepertoireGraph graph;
+    const std::string initial_fen = ChessBoard().fen();
+
+    // Create child first from after 1. e4 e5
+    ChessBoard after_e4_e5;
+    REQUIRE(after_e4_e5.make_san_move("e4").has_value());
+    REQUIRE(after_e4_e5.make_san_move("e5").has_value());
+    const auto child =
+        graph.add_variant("Knight Line", Side::White, after_e4_e5.fen(), {{"Nf3"}, {"Nc6"}});
+    REQUIRE(child.ok);
+
+    // Add a root segment ending at 1. e4 e5 -> automatically linked to child
+    const auto root = graph.add_variant("King's Pawn", Side::White, initial_fen, {{"e4"}, {"e5"}});
+    REQUIRE(root.ok);
+    REQUIRE(contains_id(graph.find_segment(root.segment_id)->child_ids, child.segment_id));
+
+    // Also create a second child starting after 1. e4 e5 2. Bc4 Nf6
+    ChessBoard after_bishop = after_e4_e5;
+    REQUIRE(after_bishop.make_san_move("Bc4").has_value());
+    REQUIRE(after_bishop.make_san_move("Nf6").has_value());
+    const auto bishop_child =
+        graph.add_variant("Bishop Followup", Side::White, after_bishop.fen(), {{"d3"}, {"Be7"}});
+    REQUIRE(bishop_child.ok);
+
+    // Extend root with 2. Bc4 Nf6 -> old child is unlinked, bishop_child is auto-linked
+    const auto ext = graph.extend_variant(root.segment_id, {{"Bc4"}, {"Nf6"}});
+    REQUIRE(ext.ok);
+    const auto* extended_root = graph.find_segment(root.segment_id);
+    REQUIRE(extended_root->moves.size() == 4);
+    REQUIRE_FALSE(contains_id(extended_root->child_ids, child.segment_id));
+    REQUIRE(contains_id(extended_root->child_ids, bishop_child.segment_id));
+    REQUIRE(contains_id(graph.find_segment(bishop_child.segment_id)->parent_ids, root.segment_id));
+    REQUIRE(graph.find_segment(child.segment_id)->parent_ids.empty());
+
+    // Illegal or empty extension fails without altering the variant
+    REQUIRE_FALSE(graph.extend_variant(root.segment_id, {}).ok);
+    REQUIRE_FALSE(graph.extend_variant(root.segment_id, {{"O-O-O"}}).ok);
+    REQUIRE(graph.find_segment(root.segment_id)->moves.size() == 4);
+
+    // Invalid truncate bounds fail cleanly
+    REQUIRE_FALSE(graph.truncate_variant(root.segment_id, 0).ok);
+    REQUIRE_FALSE(graph.truncate_variant(root.segment_id, 4).ok);
+    REQUIRE_FALSE(graph.truncate_variant("missing", 1).ok);
+
+    // Truncate back to 2 plies (1. e4 e5) -> bishop_child unlinked, Knight Line re-linked
+    const auto trunc = graph.truncate_variant(root.segment_id, 2);
+    REQUIRE(trunc.ok);
+    const auto* truncated_root = graph.find_segment(root.segment_id);
+    REQUIRE(truncated_root->moves.size() == 2);
+    REQUIRE(contains_id(truncated_root->child_ids, child.segment_id));
+    REQUIRE_FALSE(contains_id(truncated_root->child_ids, bishop_child.segment_id));
+}
+
+TEST_CASE("Variants support normalized tags, split preservation, and case-insensitive tag search",
+          "[repertoire_graph]") {
+    RepertoireGraph graph;
+    const std::string initial_fen = ChessBoard().fen();
+
+    const auto r1 =
+        graph.add_variant("Italian", Side::White, initial_fen, {{"e4"}, {"e5"}, {"Nf3"}, {"Nc6"}},
+                          {"  Sharp ", "e4-Repertoire", "sharp", "", "Open Games"});
+    REQUIRE(r1.ok);
+
+    const auto* seg1 = graph.find_segment(r1.segment_id);
+    REQUIRE(seg1 != nullptr);
+    REQUIRE(seg1->tags == std::vector<std::string>{"Sharp", "e4-Repertoire", "Open Games"});
+
+    // Splitting retains original tags on the continuation segment while new branch gets its own
+    // tags
+    const auto branch = graph.add_variant("Petrov", Side::White, initial_fen,
+                                          {{"e4"}, {"e5"}, {"Nf3"}, {"Nf6"}}, {"Solid", "Anti-e4"});
+    REQUIRE(branch.ok);
+    REQUIRE(branch.split_occurred);
+    REQUIRE(graph.find_segment(r1.segment_id)->tags ==
+            std::vector<std::string>{"Sharp", "e4-Repertoire", "Open Games"});
+    REQUIRE(graph.find_segment(branch.segment_id)->tags ==
+            std::vector<std::string>{"Solid", "Anti-e4"});
+
+    // Replace tags explicitly
+    REQUIRE(graph.set_tags(branch.segment_id, {"  Trappy ", "petrov", "SHARP"}));
+    REQUIRE_FALSE(graph.set_tags("unknown_id", {"x"}));
+
+    const auto sharp_matches = graph.find_by_tag("sharp");
+    REQUIRE(sharp_matches.size() == 3);
+
+    const auto petrov_matches = graph.find_by_tag("  PETR ");
+    REQUIRE(petrov_matches.size() == 1);
+    REQUIRE(petrov_matches[0]->id == branch.segment_id);
+
+    REQUIRE(graph.find_by_tag("   ").empty());
+    REQUIRE(graph.find_by_tag("nonexistent").empty());
+}
+
+TEST_CASE("Unnamed variants derive hierarchical fallback names from their parent variant",
+          "[repertoire_graph]") {
+    RepertoireGraph graph;
+    const std::string initial_fen = ChessBoard().fen();
+
+    // Unnamed root variant displays as "Variant 1"
+    const auto unnamed_root = graph.add_variant("", Side::Black, initial_fen, {{"d4"}, {"d5"}});
+    REQUIRE(unnamed_root.ok);
+    REQUIRE(graph.find_segment(unnamed_root.segment_id)->name.empty());
+    REQUIRE(graph.display_name(unnamed_root.segment_id) == "Variant 1");
+
+    // Named parent with two unnamed branches displays as "[Parent Variant] - Variant [number]"
+    const auto parent = graph.add_variant("Italian", Side::White, initial_fen, {{"e4"}, {"e5"}});
+    REQUIRE(parent.ok);
+
+    const auto b1 = graph.branch_from(parent.segment_id, 1, "", {{"Nf3"}, {"Nc6"}});
+    const auto b2 = graph.branch_from(parent.segment_id, 1, "   ", {{"Bc4"}, {"Nf6"}});
+    REQUIRE(b1.ok);
+    REQUIRE(b2.ok);
+    REQUIRE(graph.display_name(b1.segment_id) == "Italian - Variant 1");
+    REQUIRE(graph.display_name(b2.segment_id) == "Italian - Variant 2");
+
+    // Continuations and FEN lookups surface the computed display name
+    ChessBoard after_e4_e5;
+    REQUIRE(after_e4_e5.make_san_move("e4").has_value());
+    REQUIRE(after_e4_e5.make_san_move("e5").has_value());
+    const auto conts = graph.continuations_at(after_e4_e5.normalized_fen());
+    REQUIRE(conts.size() == 2);
+    REQUIRE(contains_id({conts[0].segment_name, conts[1].segment_name}, "Italian - Variant 1"));
+    REQUIRE(contains_id({conts[0].segment_name, conts[1].segment_name}, "Italian - Variant 2"));
+
+    // Renaming the parent updates unnamed child display names dynamically
+    REQUIRE(graph.rename_variant(parent.segment_id, "Giuoco Piano"));
+    REQUIRE(graph.display_name(b1.segment_id) == "Giuoco Piano - Variant 1");
+    REQUIRE(graph.display_name(b2.segment_id) == "Giuoco Piano - Variant 2");
+
+    // Clearing an explicit name on a child falls back to its parent-based name
+    REQUIRE(graph.rename_variant(b1.segment_id, "Mainline"));
+    REQUIRE(graph.display_name(b1.segment_id) == "Mainline");
+    REQUIRE(graph.display_name(b2.segment_id) == "Giuoco Piano - Variant 1");
+    REQUIRE(graph.rename_variant(b1.segment_id, ""));
+    REQUIRE(graph.display_name(b1.segment_id) == "Giuoco Piano - Variant 1");
+    REQUIRE(graph.display_name(b2.segment_id) == "Giuoco Piano - Variant 2");
+}

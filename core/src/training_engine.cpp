@@ -203,7 +203,7 @@ void TrainingEngine::finalize_session(RepertoireGraph& graph, TrainingSessionSta
 
         session.score_deltas.push_back(SegmentScoreDelta{
             .segment_id = seg->id,
-            .name = seg->name,
+            .name = graph.display_name(seg->id),
             .passed = passed,
             .previous_score = prev_eff,
             .new_score = seg->stats.score,

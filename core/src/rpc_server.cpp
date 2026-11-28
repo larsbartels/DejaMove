@@ -69,6 +69,20 @@ std::vector<MoveInput> parse_move_inputs(const nlohmann::json& arr) {
     return inputs;
 }
 
+std::vector<std::string> parse_tags(const nlohmann::json& arr) {
+    std::vector<std::string> tags;
+    if (!arr.is_array()) {
+        return tags;
+    }
+    tags.reserve(arr.size());
+    for (const auto& item : arr) {
+        if (item.is_string()) {
+            tags.push_back(item.get<std::string>());
+        }
+    }
+    return tags;
+}
+
 nlohmann::json make_error_response(const nlohmann::json& id, int code, const std::string& msg) {
     return nlohmann::json{
         {"jsonrpc", "2.0"},
@@ -142,7 +156,7 @@ nlohmann::json session_state_json(const TrainingSessionState& s, const Repertoir
         {"awaitingMistakeAdvance", s.awaiting_mistake_advance},
         {"startSegmentId", s.start_segment_id},
         {"currentSegmentId", s.current_segment_id},
-        {"currentSegmentName", cur_seg ? cur_seg->name : ""},
+        {"currentSegmentName", cur_seg ? graph.display_name(cur_seg->id) : ""},
         {"userSide", s.user_side == Side::White ? "white" : "black"},
         {"startFen", s.start_fen},
         {"currentFen", s.current_fen},
@@ -256,8 +270,9 @@ nlohmann::json RpcServer::dispatch_method(std::string_view method, const nlohman
         const Side side = (side_str == "black") ? Side::Black : Side::White;
         const std::string start_fen = params.value("startFen", ChessBoard().fen());
         const auto inputs = parse_move_inputs(params.value("moves", nlohmann::json::array()));
+        const auto tags = parse_tags(params.value("tags", nlohmann::json::array()));
 
-        const auto res = repertoire_.add_variant(name, side, start_fen, inputs);
+        const auto res = repertoire_.add_variant(name, side, start_fen, inputs, tags);
         if (res.ok) {
             auto_save_if_configured();
         }
@@ -275,8 +290,9 @@ nlohmann::json RpcServer::dispatch_method(std::string_view method, const nlohman
         const std::size_t after_ply = params.value("afterPly", std::size_t{0});
         const std::string name = params.value("name", "");
         const auto inputs = parse_move_inputs(params.value("moves", nlohmann::json::array()));
+        const auto tags = parse_tags(params.value("tags", nlohmann::json::array()));
 
-        const auto res = repertoire_.branch_from(parent_id, after_ply, name, inputs);
+        const auto res = repertoire_.branch_from(parent_id, after_ply, name, inputs, tags);
         if (res.ok) {
             auto_save_if_configured();
         }
@@ -324,6 +340,59 @@ nlohmann::json RpcServer::dispatch_method(std::string_view method, const nlohman
             auto_save_if_configured();
         }
         return nlohmann::json{{"ok", ok}};
+    }
+
+    if (method == "repertoire.extendVariant") {
+        const std::string id = params.value("id", "");
+        const auto inputs = parse_move_inputs(params.value("moves", nlohmann::json::array()));
+        const auto res = repertoire_.extend_variant(id, inputs);
+        if (res.ok) {
+            auto_save_if_configured();
+        }
+        return nlohmann::json{
+            {"ok", res.ok},
+            {"error", res.error},
+            {"segmentId", res.segment_id},
+        };
+    }
+
+    if (method == "repertoire.truncateVariant") {
+        const std::string id = params.value("id", "");
+        const std::int64_t raw_keep = params.value("keepPlies", std::int64_t{0});
+        if (raw_keep <= 0) {
+            return nlohmann::json{
+                {"ok", false},
+                {"error", "Variant must keep at least one move."},
+                {"segmentId", ""},
+            };
+        }
+        const auto res = repertoire_.truncate_variant(id, static_cast<std::size_t>(raw_keep));
+        if (res.ok) {
+            auto_save_if_configured();
+        }
+        return nlohmann::json{
+            {"ok", res.ok},
+            {"error", res.error},
+            {"segmentId", res.segment_id},
+        };
+    }
+
+    if (method == "repertoire.setTags") {
+        const bool ok = repertoire_.set_tags(
+            params.value("id", ""), parse_tags(params.value("tags", nlohmann::json::array())));
+        if (ok) {
+            auto_save_if_configured();
+        }
+        return nlohmann::json{{"ok", ok}};
+    }
+
+    if (method == "repertoire.findByTag") {
+        const std::string tag_query = params.value("tag", "");
+        nlohmann::json segment_ids = nlohmann::json::array();
+        for (const VariantSegment* seg : repertoire_.find_by_tag(tag_query)) {
+            segment_ids.push_back(seg->id);
+        }
+        return nlohmann::json{{"ok", true}, {"segmentIds", std::move(segment_ids)}};
     }
 
     if (method == "repertoire.continuationsAt") {

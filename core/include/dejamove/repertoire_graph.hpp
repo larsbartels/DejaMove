@@ -7,6 +7,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace dejamove {
@@ -36,6 +37,7 @@ struct VariantSegment {
     std::vector<MoveStep> moves;
     std::vector<std::string> parent_ids;
     std::vector<std::string> child_ids;
+    std::vector<std::string> tags;
     VariantStats stats;
 };
 
@@ -79,6 +81,12 @@ struct LinkResult {
     std::string error;
 };
 
+struct EditVariantResult {
+    bool ok = false;
+    std::string error;
+    std::string segment_id;
+};
+
 /**
  * @brief Directed Acyclic Graph (DAG) of opening variant segments.
  *
@@ -98,7 +106,8 @@ class RepertoireGraph {
      * divergence point into a shared parent and child branches.
      */
     AddVariantResult add_variant(std::string name, Side side, std::string_view start_fen,
-                                 const std::vector<MoveInput>& moves);
+                                 const std::vector<MoveInput>& moves,
+                                 const std::vector<std::string>& tags = {});
 
     /**
      * @brief Branches from an existing segment after `after_ply` (0-indexed) with `moves`.
@@ -107,7 +116,26 @@ class RepertoireGraph {
      * `[0..after_ply]` and `[after_ply+1..end]` plus the new branch.
      */
     AddVariantResult branch_from(std::string_view parent_segment_id, std::size_t after_ply,
-                                 std::string name, const std::vector<MoveInput>& moves);
+                                 std::string name, const std::vector<MoveInput>& moves,
+                                 const std::vector<std::string>& tags = {});
+
+    /**
+     * @brief Appends `moves` to the end of an existing variant segment and reconciles DAG links.
+     */
+    EditVariantResult extend_variant(std::string_view segment_id,
+                                     const std::vector<MoveInput>& moves);
+
+    /**
+     * @brief Truncates an existing variant segment to keep only the first `keep_plies` moves
+     *        and reconciles DAG links.
+     */
+    EditVariantResult truncate_variant(std::string_view segment_id, std::size_t keep_plies);
+
+    /**
+     * @brief Recomputes all parent/child links automatically by normalized board position & side
+     *        while enforcing acyclicity.
+     */
+    void reconcile_links();
 
     /**
      * @brief Links an existing parent segment to an existing child segment (multi-parent DAG).
@@ -118,6 +146,7 @@ class RepertoireGraph {
     LinkResult link_parent_child(std::string_view parent_id, std::string_view child_id);
 
     bool rename_variant(std::string_view segment_id, std::string new_name);
+    bool set_tags(std::string_view segment_id, const std::vector<std::string>& tags);
     bool set_move_description(std::string_view segment_id, std::size_t ply_index,
                               std::string description);
     bool remove_variant(std::string_view segment_id);
@@ -125,6 +154,8 @@ class RepertoireGraph {
     [[nodiscard]] const VariantSegment* find_segment(std::string_view segment_id) const;
     [[nodiscard]] VariantSegment* find_segment_mut(std::string_view segment_id);
     [[nodiscard]] std::vector<const VariantSegment*> all_segments() const;
+    [[nodiscard]] std::vector<const VariantSegment*> find_by_tag(std::string_view tag_query) const;
+    [[nodiscard]] std::string display_name(std::string_view segment_id) const;
 
     /**
      * @brief Returns all defined repertoire continuations from any position (by normalized FEN).
@@ -173,6 +204,8 @@ class RepertoireGraph {
 
   private:
     std::string generate_id();
+    [[nodiscard]] std::string display_name_impl(std::string_view segment_id,
+                                                std::unordered_set<std::string>& visited) const;
     [[nodiscard]] bool has_path(std::string_view from_id, std::string_view target_id) const;
     static void add_unique(std::vector<std::string>& vec, const std::string& value);
     static void remove_value(std::vector<std::string>& vec, std::string_view value);

@@ -107,6 +107,7 @@ export function ChessBoardView({
       orig: a.orig as Key,
       dest: a.dest as Key,
       brush: a.brush,
+      modifiers: a.lineWidth ? { lineWidth: a.lineWidth } : undefined,
     }));
     api.set({
       fen,

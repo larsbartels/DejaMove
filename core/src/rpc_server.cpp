@@ -338,6 +338,8 @@ nlohmann::json RpcServer::dispatch_method(std::string_view method, const nlohman
                 {"uci", c.uci},
                 {"san", c.san},
                 {"segmentId", c.segment_id},
+                {"variantName", c.segment_name},
+                {"variantNames", c.variant_names},
                 {"plyIndex", c.ply_index},
                 {"description", c.description},
             });

@@ -48,6 +48,8 @@ struct Continuation {
     std::string uci;
     std::string san;
     std::string segment_id;
+    std::string segment_name;
+    std::vector<std::string> variant_names;
     std::size_t ply_index = 0;
     std::string description;
 };

@@ -3,6 +3,8 @@ import { ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
+import { GoogleDriveSyncProvider } from './sync/googleDriveProvider';
+import type { SyncConfigInput, SyncProvider } from './sync/syncProvider';
 
 const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -122,7 +124,15 @@ function resolveCoreBinary(): string {
 }
 
 const coreClient = new CoreRpcClient();
+let syncProvider: SyncProvider | null = null;
 let mainWindow: BrowserWindow | null = null;
+
+function requireSyncProvider(): SyncProvider {
+  if (!syncProvider) {
+    throw new Error('Sync provider is not initialized.');
+  }
+  return syncProvider;
+}
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -214,6 +224,7 @@ app.whenReady().then(() => {
     const binaryPath = resolveCoreBinary();
     const storagePath = path.join(app.getPath('userData'), 'repertoire.json');
     coreClient.start(binaryPath, storagePath);
+    syncProvider = new GoogleDriveSyncProvider(app.getPath('userData'), coreClient);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     dialog.showErrorBox('DejaMove Startup Error', message);
@@ -223,6 +234,23 @@ app.whenReady().then(() => {
 
   ipcMain.handle('dejamove:rpc', (_event, method: string, params?: Record<string, unknown>) =>
     coreClient.call(method, params ?? {}),
+  );
+  ipcMain.handle('dejamove:sync:getStatus', () => requireSyncProvider().getStatus());
+  ipcMain.handle('dejamove:sync:configure', (_event, input: SyncConfigInput) =>
+    requireSyncProvider().configure(input),
+  );
+  ipcMain.handle('dejamove:sync:setAutoSync', (_event, enabled: boolean) =>
+    requireSyncProvider().setAutoSync(enabled),
+  );
+  ipcMain.handle('dejamove:sync:connect', () => requireSyncProvider().connect());
+  ipcMain.handle('dejamove:sync:disconnect', () => requireSyncProvider().disconnect());
+  ipcMain.handle('dejamove:sync:syncNow', () => requireSyncProvider().syncNow());
+  ipcMain.handle('dejamove:sync:createBackup', (_event, label?: string) =>
+    requireSyncProvider().createBackup(label),
+  );
+  ipcMain.handle('dejamove:sync:listBackups', () => requireSyncProvider().listBackups());
+  ipcMain.handle('dejamove:sync:restoreBackup', (_event, snapshotId: string) =>
+    requireSyncProvider().restoreBackup(snapshotId),
   );
 
   createWindow();
